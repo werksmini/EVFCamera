@@ -6,6 +6,7 @@
     Playback  review photos
 """
 import os
+import time
 
 from PIL import Image
 
@@ -26,6 +27,10 @@ class Mode:
 
     def on(self, action):
         """Handle one action. Return the name of a mode to switch to, or None to stay."""
+        return None
+
+    def tick(self):
+        """Called every loop. Return a mode name to switch on a timer, or None."""
         return None
 
     def render(self, md):
@@ -161,4 +166,24 @@ class Playback(Mode):
         return self.app.ui.playback(photo, self.index, len(self.files), name)
 
 
-MODES = (Shoot, Magnify, Menu, Playback)
+class Review(Mode):
+    """The shot just taken, for a moment after saving (off unless review_s > 0)."""
+    name = "review"
+
+    def show(self, frame, name, seconds):
+        self.frame, self.photo_name = frame, name
+        self.until = time.monotonic() + seconds
+
+    def tick(self):
+        return "shoot" if time.monotonic() >= self.until else None
+
+    def on(self, a):
+        if a == A.PLAY:
+            return "playback"
+        return "shoot"                 # any other control ends the review early
+
+    def render(self, md):
+        return self.app.ui.review(self.frame, self.photo_name)
+
+
+MODES = (Shoot, Magnify, Menu, Playback, Review)

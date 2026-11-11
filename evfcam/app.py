@@ -27,7 +27,7 @@ class App:
     def switch(self, name):
         if name and name != self.mode.name:
             self.mode.leave()
-            if name in ("menu", "playback"):
+            if name in ("menu", "playback", "review"):
                 self.ui.clear_toast()             # messages belong to the live view
             self.mode = self.modes[name]
             self.mode.enter()
@@ -39,14 +39,25 @@ class App:
         self.switch(self.mode.on(action))
 
     def take_photo(self):
+        cfg = self.cfg
         stem = datetime.now().strftime("%Y%m%d_%H%M%S")
         name, n = stem + ".jpg", 2
-        while os.path.exists(os.path.join(self.cfg.photos_dir, name)):   # two shots in one second
+        while os.path.exists(os.path.join(cfg.photos_dir, name)):   # two shots in one second
             name, n = f"{stem}_{n}.jpg", n + 1
-        path = os.path.join(self.cfg.photos_dir, name)
+        path = os.path.join(cfg.photos_dir, name)
+
+        frame = self.cam.grab_preview() if cfg.review_s > 0 else None   # free: already in memory
+        if cfg.capture_flash:
+            self.cam.show_overlay(self.ui.finish(self.ui.capture_flash()))
+            self.cam.wait_frame()          # let the flash reach the screen before the preview freezes
         self.cam.capture(path)
         print("saved", path, flush=True)
-        self.ui.toast("SAVED " + name)
+
+        if frame is not None:
+            self.modes["review"].show(frame, name, cfg.review_s)
+            self.switch("review")
+        else:
+            self.ui.toast("SAVED " + name)
 
     def update_focus(self, md):
         fom = md.get("FocusFoM", 0)
@@ -68,6 +79,7 @@ class App:
                 last = 0.0                         # redraw right away after input
             except queue.Empty:
                 pass
+            self.switch(self.mode.tick())
             if self.running and time.monotonic() - last >= self.cfg.redraw_s:
                 self.draw()
                 last = time.monotonic()

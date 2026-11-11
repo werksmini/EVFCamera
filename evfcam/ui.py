@@ -9,6 +9,7 @@ WHITE = (255, 255, 255, 255)
 GREY = (170, 170, 170, 255)
 YELLOW = (255, 210, 0, 255)
 GREEN = (60, 220, 90, 255)
+RED = (235, 60, 50, 255)
 BAR = (0, 0, 0, 150)
 PANEL = (12, 12, 14, 255)       # Menu and Playback hide the preview completely
 SELECT = (58, 58, 64, 255)
@@ -75,7 +76,11 @@ class UI:
         d.text((W * 0.19, y), f"ISO {round(gain * 100)}", font=self.big, fill=WHITE, anchor="lm")
         d.text((W * 0.40, y), f"{md.get('ColourTemperature', 0)}K", font=self.big, fill=WHITE, anchor="lm")
         if ev:
-            d.text((W * 0.58, y), f"{ev:+.1f} EV", font=self.big, fill=YELLOW, anchor="lm")
+            # Heuristic: the auto exposure only adds digital gain once shutter and analogue gain
+            # are maxed out, so more +EV can't brighten the picture any further.
+            limit = ev > 0 and md.get("DigitalGain", 1.0) > 1.1
+            d.text((W * 0.58, y), f"{ev:+.1f} EV" + (" MAX" if limit else ""), font=self.big,
+                   fill=RED if limit else YELLOW, anchor="lm")
         locked = md.get("AeLocked", False)
         d.text((W - 16, y), "AE LOCK" if locked else "AE", font=self.big,
                fill=GREEN if locked else WHITE, anchor="rm")
@@ -139,6 +144,26 @@ class UI:
             d.text((48, 120), "Settings for this page arrive in milestone 2.", font=self.mid, fill=GREY)
         hint = "Up/Down = move   OK = open   Back = up a level   Menu = close"
         d.text((32, H - 40), hint, font=self.small, fill=GREY, anchor="lm")
+        return img
+
+    def capture_flash(self):
+        """Shown from the shutter press until the photo is saved: dark screen, white border."""
+        img, d = self.canvas((0, 0, 0, 255))
+        b = max(6, self.W // 120)
+        d.rectangle([b // 2, b // 2, self.W - b // 2, self.H - b // 2], outline=WHITE, width=b)
+        r = 9
+        d.ellipse([self.W - 40 - r, 30 - r, self.W - 40 + r, 30 + r], fill=RED)
+        return img
+
+    def review(self, frame, name):
+        """The frame grabbed at the shutter press, shown briefly after saving."""
+        img, d = self.canvas((0, 0, 0, 255))
+        frame = frame.copy()
+        frame.thumbnail((self.W, self.H))
+        img.paste(frame, ((self.W - frame.width) // 2, (self.H - frame.height) // 2))
+        d = ImageDraw.Draw(img)
+        d.rectangle([0, self.H - self.bar_h, self.W, self.H], fill=SOLID_BAR)
+        d.text((16, self.H - self.bar_h // 2), "SAVED " + name, font=self.small, fill=GREEN, anchor="lm")
         return img
 
     def playback(self, photo, index, count, name):

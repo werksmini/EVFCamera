@@ -16,6 +16,7 @@ class Camera:
 
         self.p = Picamera2()
         flip = Transform(hflip=cfg.flip, vflip=cfg.flip)
+        self.flipped = cfg.flip
         self.preview_cfg = self.p.create_preview_configuration(
             main={"size": cfg.preview_size},
             sensor={"output_size": cfg.sensor_mode},
@@ -42,6 +43,17 @@ class Camera:
 
     def set_ev(self, ev: float):
         self.p.set_controls({"ExposureValue": ev})
+
+    def wait_frame(self):
+        """Block until the next preview frame, so an overlay just set is actually on screen."""
+        self.p.capture_metadata()
+
+    def grab_preview(self):
+        """The current preview frame as a PIL image, upright (undoing the bench-monitor flip)."""
+        from PIL import Image
+        arr = self.p.capture_array("main")           # XBGR8888 -> [R, G, B, 255] per pixel
+        img = Image.fromarray(arr[:, :, :3])
+        return img.rotate(180) if self.flipped else img
 
     def capture(self, path: str):
         self.set_zoom(1)
@@ -79,6 +91,13 @@ class FakeCamera:
 
     def set_ev(self, ev):
         self.ev = ev
+
+    def wait_frame(self):
+        pass
+
+    def grab_preview(self):
+        from PIL import Image
+        return Image.new("RGB", (1280, 960), (90, 120, 160))
 
     def capture(self, path):
         from PIL import Image

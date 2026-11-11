@@ -50,3 +50,10 @@ shot("4_menu", A.BACK, A.MENU, A.DOWN)
 shot("5_menu_page", A.OK)
 shot("6_saved", A.SHUTTER_HALF, A.SHUTTER_FULL)
 shot("7_playback", A.PLAY)
+app.cam.show_overlay(app.ui.finish(app.ui.capture_flash()))
+Image.alpha_composite(backdrop, Image.fromarray(app.cam.last_overlay)).convert("RGB").save(os.path.join(out, "8_flash.png"))
+cfg.review_s = 5
+shot("9_review", A.PLAY, A.SHUTTER_FULL)
+real = app.cam.metadata
+app.cam.metadata = lambda: {**real(), "DigitalGain": 1.9, "ExposureTime": 66000}
+shot("10_ev_limit", A.BACK, A.DIAL_UP, A.DIAL_UP, A.DIAL_UP)

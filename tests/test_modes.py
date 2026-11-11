@@ -80,6 +80,28 @@ def test_dial_sets_exposure_compensation():
     assert app.ev == 0
 
 
+def test_capture_flash_shown_before_capture():
+    app = make_app()
+    shown = []
+    real_capture = app.cam.capture
+    app.cam.capture = lambda path: (shown.append(app.cam.last_overlay[5, 5].tolist()), real_capture(path))
+    press(app, A.SHUTTER_FULL)
+    assert shown and shown[0][3] == 255          # opaque flash frame was on screen at capture time
+    assert app.mode.name == "shoot"              # review is off by default
+
+
+def test_review_setting():
+    import time
+    app = make_app(review_s=0.3)
+    press(app, A.SHUTTER_FULL)
+    assert app.mode.name == "review"
+    time.sleep(0.35)
+    app.switch(app.mode.tick())
+    assert app.mode.name == "shoot"
+    press(app, A.SHUTTER_FULL, A.DOWN)           # any control ends review early
+    assert app.mode.name == "shoot"
+
+
 def test_quit():
     app = make_app()
     app.handle(A.QUIT)

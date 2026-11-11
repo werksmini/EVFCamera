@@ -61,7 +61,11 @@ cd ~/evfpi/EVFCamera && git pull
 python3 -m evfcam            # bench monitor (flipped, 960x720 window)
 python3 -m evfcam --evf      # 0.4" EVF, 1280x960, not flipped
 python3 -m evfcam --fake     # no camera: work on the UI anywhere
+python3 -m evfcam --review 1 # show each shot for 1 s after saving (default off)
+python3 -m evfcam --no-flash # no border flash at the shutter press
 ```
+
+At the shutter press the screen goes dark with a white border and a red dot until the photo is saved, then live view returns with "SAVED". In Shoot mode, the EV readout turns red with "MAX" when the exposure can't get any brighter.
 
 Controls, typed in the SSH terminal or on a keyboard plugged into the Pi:
 
