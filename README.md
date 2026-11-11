@@ -61,25 +61,26 @@ cd ~/evfpi/EVFCamera && git pull
 python3 -m evfcam            # bench monitor (flipped, 960x720 window)
 python3 -m evfcam --evf      # 0.4" EVF, 1280x960, not flipped
 python3 -m evfcam --fake     # no camera: work on the UI anywhere
-python3 -m evfcam --review 1 # show each shot for 1 s after saving (default off)
-python3 -m evfcam --no-flash # no border flash at the shutter press
 ```
 
-At the shutter press the screen goes dark with a white border and a red dot until the photo is saved, then live view returns with "SAVED". In Shoot mode, the EV readout turns red with "MAX" when the exposure can't get any brighter.
+At the shutter press the screen goes dark with a white border and a red dot until the photo is saved, then live view returns with "SAVED". Review after the shot and the flash itself are in Menu > Display. In Shoot mode, the EV readout turns red with "MAX" when the exposure can't get any brighter.
 
 Controls, typed in the SSH terminal or on a keyboard plugged into the Pi:
 
-| Key | Camera control | Shoot | Magnify | Menu | Playback |
-| --- | --- | --- | --- | --- | --- |
-| Space | Shutter (full) | Take photo | Take photo | Close | Close |
-| `h` | Shutter (half) | – | Close | Close | Close |
-| Enter | OK | Magnify 5× | 10×, then off | Open page | – |
-| Arrows | D-pad | – | – | Move | ← → browse |
-| `m` | Menu | Open menu | Close | Close | Close |
-| `p` | Play | Playback | Playback | – | Close |
-| `b` / Backspace | Back | Reset EV | Close | Up a level | Close |
-| `[` `]` | Thumb wheel | EV −/+ ⅓ | – | – | Browse |
-| `q` | – | Quit | Quit | Quit | Quit |
+| Key | Camera control | Shoot | Magnify | Menu (page list) | Menu (inside a page) | Playback |
+| --- | --- | --- | --- | --- | --- | --- |
+| Space | Shutter (full) | Take photo | Take photo | Close | Close | Close |
+| `h` | Shutter (half) | – | Close | Close | Close | Close |
+| Enter | OK | Magnify 5× | 10×, then off | Open page | Step value / run action | – |
+| ↑ ↓ | D-pad | ISO (Manual) | – | Move | Move | – |
+| ← → | D-pad | – | – | ← close, → open | Change value | Browse |
+| `m` | Menu | Open menu | Close | Close | Close menu | Close |
+| `p` | Play | Playback | Playback | – | – | Close |
+| `b` / Backspace | Back | Reset EV | Close | Close | Up to page list | Close |
+| `[` `]` | Thumb wheel | EV (A) / shutter (S, M) | – | – | Change value | Browse |
+| `q` | – | Quit | Quit | Quit | Quit | Quit |
+
+Settings are saved to `~/.config/evfcam/settings.json` and come back after a restart.
 
 The bench shutter button on GPIO 27 also works. Photos save to `~/evfpi/photos`.
 

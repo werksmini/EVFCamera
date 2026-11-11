@@ -67,31 +67,41 @@ class UI:
             img = img.rotate(180)
         return np.asarray(img)
 
-    def _top_bar(self, d, md, ev):
+    def _top_bar(self, d, md, st):
         W = self.W
         d.rectangle([0, 0, W, self.bar_h], fill=BAR)
         y = self.bar_h // 2
         gain = md.get("AnalogueGain", 1.0) * md.get("DigitalGain", 1.0)
-        d.text((16, y), shutter_txt(md.get("ExposureTime")), font=self.big, fill=WHITE, anchor="lm")
-        d.text((W * 0.19, y), f"ISO {round(gain * 100)}", font=self.big, fill=WHITE, anchor="lm")
-        d.text((W * 0.40, y), f"{md.get('ColourTemperature', 0)}K", font=self.big, fill=WHITE, anchor="lm")
+        mode = st.exp_mode if st else "Auto"
+        # the letter shows who sets exposure: A = camera, S = you set shutter, M = you set both
+        d.text((16, y), {"Auto": "A", "Shutter": "S", "Manual": "M"}[mode], font=self.big,
+               fill=GREEN, anchor="lm")
+        fixed_shutter, fixed_iso = mode in ("Shutter", "Manual"), mode == "Manual"
+        d.text((W * 0.07, y), shutter_txt(md.get("ExposureTime")), font=self.big,
+               fill=YELLOW if fixed_shutter else WHITE, anchor="lm")
+        d.text((W * 0.24, y), f"ISO {round(gain * 100)}", font=self.big,
+               fill=YELLOW if fixed_iso else WHITE, anchor="lm")
+        wb = st.wb if st and st.wb != "Auto" else f"{md.get('ColourTemperature', 0)}K"
+        d.text((W * 0.44, y), wb, font=self.mid if len(wb) > 6 else self.big, fill=WHITE, anchor="lm")
+        ev = st.ev if st and mode != "Manual" else 0
         if ev:
             # Heuristic: the auto exposure only adds digital gain once shutter and analogue gain
             # are maxed out, so more +EV can't brighten the picture any further.
             limit = ev > 0 and md.get("DigitalGain", 1.0) > 1.1
-            d.text((W * 0.58, y), f"{ev:+.1f} EV" + (" MAX" if limit else ""), font=self.big,
+            d.text((W * 0.63, y), f"{ev:+.1f}" + (" MAX" if limit else " EV"), font=self.big,
                    fill=RED if limit else YELLOW, anchor="lm")
-        locked = md.get("AeLocked", False)
-        d.text((W - 16, y), "AE LOCK" if locked else "AE", font=self.big,
-               fill=GREEN if locked else WHITE, anchor="rm")
+        if mode != "Manual":
+            locked = md.get("AeLocked", False)
+            d.text((W - 16, y), "AE LOCK" if locked else "AE", font=self.mid,
+                   fill=GREEN if locked else WHITE, anchor="rm")
 
-    def _bottom_bar(self, d, md, mode_txt, focus, label=None):
+    def _bottom_bar(self, d, md, text, focus, show_focus=True):
         W, H = self.W, self.H
         d.rectangle([0, H - self.bar_h, W, H], fill=BAR)
         y = H - self.bar_h // 2
-        fps = 1_000_000 / md["FrameDuration"] if md.get("FrameDuration") else 0
-        text = label or f"{mode_txt}   {fps:.0f} fps   {md.get('Lux', 0):.0f} lux"
         d.text((16, y), text, font=self.small, fill=WHITE, anchor="lm")
+        if not show_focus:
+            return
         level, in_focus = focus
         bx0, bx1 = W - 316, W - 16
         d.text((bx0 - 12, y), "FOCUS", font=self.small, fill=WHITE, anchor="rm")
@@ -104,17 +114,37 @@ class UI:
         d.rectangle([cx - size, cy - size, cx + size, cy + size],
                     outline=GREEN if in_focus else WHITE, width=3)
 
+    def _aspect_mask(self, d, aspect):
+        """Darken what falls outside the chosen aspect ratio (the window itself is 4:3)."""
+        from .camcore import aspect_rect
+        x, y, w, h = aspect_rect((0, 0, self.W, self.H), aspect)
+        shade = (0, 0, 0, 170)
+        if x > 0:
+            d.rectangle([0, 0, x - 1, self.H], fill=shade)
+            d.rectangle([x + w, 0, self.W, self.H], fill=shade)
+        if y > 0:
+            d.rectangle([0, 0, self.W, y - 1], fill=shade)
+            d.rectangle([0, y + h, self.W, self.H], fill=shade)
+        if x > 0 or y > 0:
+            d.rectangle([x, y, x + w - 1, y + h - 1], outline=GREY, width=1)
+
     # --- screens -----------------------------------------------------------------------
-    def shoot(self, md, mode_txt, focus, ev):
+    def shoot(self, md, focus, st, tags=""):
         img, d = self.canvas()
-        self._top_bar(d, md, ev)
-        self._focus_square(d, focus[1])
-        self._bottom_bar(d, md, mode_txt, focus)
+        self._aspect_mask(d, st.aspect)
+        self._top_bar(d, md, st)
+        if st.focus_square:
+            self._focus_square(d, focus[1])
+        if st.info == "Full":
+            fps = 1_000_000 / md["FrameDuration"] if md.get("FrameDuration") else 0
+            self._bottom_bar(d, md, f"{tags}   {fps:.0f} fps", focus, st.focus_bar)
+        elif st.focus_bar:
+            self._bottom_bar(d, md, "", focus)
         return img
 
-    def magnify(self, md, focus, zoom):
+    def magnify(self, md, focus, zoom, st=None):
         img, d = self.canvas()
-        self._top_bar(d, md, 0)
+        self._top_bar(d, md, st)
         # corner brackets show you're looking at a crop, not the whole frame
         m, L = 24, 60
         for x, y, sx, sy in ((m, self.bar_h + m, 1, 1), (self.W - m, self.bar_h + m, -1, 1),
@@ -122,27 +152,35 @@ class UI:
                              (self.W - m, self.H - self.bar_h - m, -1, -1)):
             d.line([(x, y), (x + sx * L, y)], fill=WHITE, width=3)
             d.line([(x, y), (x, y + sy * L)], fill=WHITE, width=3)
-        self._bottom_bar(d, md, "", focus, label=f"MAGNIFY {zoom}x    OK = next    Back = exit")
+        self._bottom_bar(d, md, f"MAGNIFY {zoom}x    OK = next    Back = exit", focus)
         return img
 
-    def menu(self, pages, cursor, open_page):
+    def menu(self, title, rows, cursor, hint):
+        """rows: (label, value_text, kind) where kind is page | choice | info | action."""
         img, d = self.canvas(PANEL)
         W, H = self.W, self.H
-        title = "MENU" if open_page is None else f"MENU  >  {pages[open_page]}"
         d.text((32, 30), title, font=self.big, fill=WHITE)
         d.line([(32, 78), (W - 32, 78)], fill=GREY, width=1)
         row_h = int(H * 0.085)
-        if open_page is None:
-            for i, name in enumerate(pages):
-                y = 100 + i * row_h
-                if i == cursor:
-                    d.rectangle([24, y, W - 24, y + row_h - 8], fill=SELECT)
-                d.text((48, y + (row_h - 8) // 2), name, font=self.mid,
-                       fill=WHITE if i == cursor else GREY, anchor="lm")
-                d.text((W - 48, y + (row_h - 8) // 2), ">", font=self.mid, fill=GREY, anchor="rm")
-        else:
-            d.text((48, 120), "Settings for this page arrive in milestone 2.", font=self.mid, fill=GREY)
-        hint = "Up/Down = move   OK = open   Back = up a level   Menu = close"
+        for i, (label, value, kind) in enumerate(rows):
+            y = 96 + i * row_h
+            mid = y + (row_h - 8) // 2
+            sel = i == cursor
+            if sel:
+                d.rectangle([24, y, W - 24, y + row_h - 8], fill=SELECT)
+            colour = WHITE if sel else GREY
+            if kind == "info":
+                colour = GREY
+            d.text((48, mid), label, font=self.mid, fill=colour, anchor="lm")
+            if kind == "page":
+                d.text((W - 48, mid), ">", font=self.mid, fill=GREY, anchor="rm")
+            elif kind == "choice":
+                text = f"<  {value}  >" if sel else value
+                d.text((W - 48, mid), text, font=self.mid, fill=YELLOW if sel else WHITE, anchor="rm")
+            elif kind == "info":
+                d.text((W - 48, mid), value, font=self.mid, fill=GREY, anchor="rm")
+            elif kind == "action" and sel:
+                d.text((W - 48, mid), "press OK", font=self.small, fill=YELLOW, anchor="rm")
         d.text((32, H - 40), hint, font=self.small, fill=GREY, anchor="lm")
         return img
 

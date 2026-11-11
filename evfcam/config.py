@@ -1,6 +1,6 @@
-"""Fixed settings for the hardware. User-adjustable settings arrive in milestone 2 (settings.py)."""
+"""Fixed settings for the hardware. Everything the user can change lives in settings.py."""
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -22,11 +22,8 @@ class Config:
     in_focus: float = 0.95                # focus square goes green within 95% of peak sharpness
     peak_decay: float = 0.999             # how fast the "best focus" mark forgets
     redraw_s: float = 0.2                 # overlay refresh interval
-    capture_flash: bool = True            # dark screen + white border while a photo is taken
-    review_s: float = 0.0                 # show the shot after saving: 0 = off (moves to the menu in milestone 2)
+    settings_path: str = os.path.expanduser("~/.config/evfcam/settings.json")
 
-    menu_pages: list = field(default_factory=lambda: [
-        "Shooting", "Exposure", "Colour", "Lens", "Display", "Setup"])
 
 
 def bench() -> Config:

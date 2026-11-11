@@ -24,6 +24,7 @@ os.makedirs(out, exist_ok=True)
 cfg = config.evf() if evf else config.bench()
 cfg.flip = False                                # draw upright for viewing
 cfg.photos_dir = tempfile.mkdtemp()
+cfg.settings_path = os.path.join(cfg.photos_dir, "settings.json")
 app = App(cfg, FakeCamera(cfg))
 
 # backdrop standing in for the live preview
@@ -43,17 +44,18 @@ def shot(name, *actions):
     print("wrote", name)
 
 
-shot("1_shoot")
-shot("2_shoot_ev", A.DIAL_UP, A.DIAL_UP)
-shot("3_magnify", A.OK)
-shot("4_menu", A.BACK, A.MENU, A.DOWN)
-shot("5_menu_page", A.OK)
-shot("6_saved", A.SHUTTER_HALF, A.SHUTTER_FULL)
-shot("7_playback", A.PLAY)
+shot("01_shoot_auto")
+shot("02_shoot_ev", A.DIAL_UP, A.DIAL_UP)
+shot("03_magnify", A.OK)
+shot("04_menu", A.BACK, A.MENU, A.DOWN)
+shot("05_menu_exposure", A.OK, A.RIGHT, A.RIGHT, A.DOWN)       # Manual, cursor on shutter
+shot("06_menu_display", A.BACK, A.DOWN, A.DOWN, A.DOWN, A.OK)
+shot("07_menu_setup", A.BACK, A.DOWN, A.OK, A.DOWN, A.DOWN, A.DOWN, A.DOWN)
+# Shooting page: 3:2; Colour page: B&W on
+press_seq = [A.BACK, A.UP, A.UP, A.UP, A.UP, A.UP, A.OK, A.DOWN, A.DOWN, A.RIGHT, A.BACK,
+             A.DOWN, A.DOWN, A.OK, A.UP, A.RIGHT, A.MENU]
+shot("08_shoot_manual_32_bw", *press_seq)
 app.cam.show_overlay(app.ui.finish(app.ui.capture_flash()))
-Image.alpha_composite(backdrop, Image.fromarray(app.cam.last_overlay)).convert("RGB").save(os.path.join(out, "8_flash.png"))
-cfg.review_s = 5
-shot("9_review", A.PLAY, A.SHUTTER_FULL)
-real = app.cam.metadata
-app.cam.metadata = lambda: {**real(), "DigitalGain": 1.9, "ExposureTime": 66000}
-shot("10_ev_limit", A.BACK, A.DIAL_UP, A.DIAL_UP, A.DIAL_UP)
+Image.alpha_composite(backdrop, Image.fromarray(app.cam.last_overlay)).convert("RGB").save(
+    os.path.join(out, "09_flash.png"))
+shot("10_playback", A.SHUTTER_FULL, A.PLAY)

@@ -1,8 +1,8 @@
 """The camera's modes. Each mode decides what every action does and what the overlay shows.
 
-    Shoot     live view; shutter takes a photo; thumb wheel = exposure compensation
+    Shoot     live view; shutter takes a photo; thumb wheel = EV (Auto) or shutter (S, M)
     Magnify   5x / 10x centre crop for focusing
-    Menu      settings pages (contents arrive in milestone 2)
+    Menu      settings pages
     Playback  review photos
 """
 import os
@@ -10,6 +10,7 @@ import time
 
 from PIL import Image
 
+from . import menu
 from .actions import A
 
 
@@ -41,7 +42,7 @@ class Shoot(Mode):
     name = "shoot"
 
     def on(self, a):
-        app = self.app
+        app, st = self.app, self.app.settings
         if a == A.SHUTTER_FULL:
             app.take_photo()
         elif a == A.OK:
@@ -51,18 +52,22 @@ class Shoot(Mode):
         elif a == A.PLAY:
             return "playback"
         elif a in (A.DIAL_UP, A.DIAL_DOWN):
-            step = 1 / 3 if a == A.DIAL_UP else -1 / 3
-            app.ev = max(-3.0, min(3.0, round((app.ev + step) * 3) / 3))
-            app.cam.set_ev(app.ev)
-            app.ui.toast(f"EV {app.ev:+.1f}", 0.8)
-        elif a == A.BACK and app.ev:
-            app.ev = 0.0
-            app.cam.set_ev(0.0)
+            # thumb wheel: EV in Auto, shutter speed in Shutter and Manual
+            d = 1 if a == A.DIAL_UP else -1
+            if st.exp_mode == "Auto":
+                app.change("ev", d, toast=lambda v: f"EV {menu.ev_label(v)}")
+            else:
+                app.change("shutter_us", -d, toast=menu.shutter_label)   # wheel right = faster
+        elif a in (A.UP, A.DOWN) and st.exp_mode == "Manual":
+            app.change("iso", 1 if a == A.UP else -1, toast=lambda v: f"ISO {v}")
+        elif a == A.BACK and st.ev and st.exp_mode != "Manual":
+            st.ev = 0.0
+            app.settings_changed("ev")
             app.ui.toast("EV reset", 0.8)
         return None
 
     def render(self, md):
-        return self.app.ui.shoot(md, self.app.cam.mode_txt, self.app.focus, self.app.ev)
+        return self.app.ui.shoot(md, self.app.focus, self.app.settings, self.app.tags())
 
 
 class Magnify(Mode):
@@ -95,38 +100,68 @@ class Magnify(Mode):
         return None
 
     def render(self, md):
-        return self.app.ui.magnify(md, self.app.focus, self.zoom)
+        return self.app.ui.magnify(md, self.app.focus, self.zoom, self.app.settings)
 
 
 class Menu(Mode):
+    """Two levels: the list of pages, then the items on one page.
+
+    Pages:  Up/Down move, OK or Right opens, Back/Left/Menu closes.
+    Items:  Up/Down move, Left/Right or the thumb wheel change the value, OK steps it
+            (or runs an action), Back goes up to the pages, Menu closes.
+    """
     name = "menu"
 
     def enter(self):
-        self.cursor = getattr(self, "cursor", 0)    # remember the last page
-        self.open_page = None
+        self.page_cursor = getattr(self, "page_cursor", 0)    # remember where you were
+        self.page = None
+        self.item_cursor = 0
+
+    def leave(self):
+        self.app.save_settings()
 
     def on(self, a):
-        pages = self.app.cfg.menu_pages
         if a in (A.SHUTTER_HALF, A.SHUTTER_FULL):
-            return "shoot"                          # like a real camera: half-press leaves menus
-        if self.open_page is None:
+            return "shoot"                                    # half-press always leaves menus
+        if self.page is None:
+            n = len(menu.PAGES)
             if a == A.UP:
-                self.cursor = (self.cursor - 1) % len(pages)
+                self.page_cursor = (self.page_cursor - 1) % n
             elif a == A.DOWN:
-                self.cursor = (self.cursor + 1) % len(pages)
+                self.page_cursor = (self.page_cursor + 1) % n
             elif a in (A.OK, A.RIGHT):
-                self.open_page = self.cursor
+                self.page, self.item_cursor = menu.PAGES[self.page_cursor], 0
             elif a in (A.MENU, A.BACK, A.LEFT):
                 return "shoot"
-        else:
-            if a in (A.BACK, A.LEFT):
-                self.open_page = None
-            elif a == A.MENU:
-                return "shoot"
+            return None
+
+        items = self.page.items
+        item = items[self.item_cursor]
+        if a == A.UP:
+            self.item_cursor = (self.item_cursor - 1) % len(items)
+        elif a == A.DOWN:
+            self.item_cursor = (self.item_cursor + 1) % len(items)
+        elif a in (A.LEFT, A.RIGHT, A.DIAL_UP, A.DIAL_DOWN) and item.kind == "choice":
+            self.app.change(item.key, 1 if a in (A.RIGHT, A.DIAL_UP) else -1)
+        elif a == A.OK and item.kind == "choice":
+            self.app.change(item.key, 0, wrap=True)
+        elif a == A.OK and item.kind == "action":
+            self.app.run_action(item.action)
+        elif a == A.BACK:
+            self.page = None
+        elif a == A.MENU:
+            return "shoot"
         return None
 
     def render(self, md):
-        return self.app.ui.menu(self.app.cfg.menu_pages, self.cursor, self.open_page)
+        ui = self.app.ui
+        if self.page is None:
+            rows = [(p.title, "", "page") for p in menu.PAGES]
+            hint = "Up/Down = move   OK = open   Back = close"
+            return ui.menu("MENU", rows, self.page_cursor, hint)
+        rows = [(it.label, menu.display(self.app, it), it.kind) for it in self.page.items]
+        hint = "Up/Down = move   Left/Right or wheel = change   Back = up"
+        return ui.menu(f"MENU  >  {self.page.title}", rows, self.item_cursor, hint)
 
 
 class Playback(Mode):

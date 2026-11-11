@@ -11,7 +11,7 @@ The camera is always in one **mode**; each mode decides what the controls do and
 | Menu | Change settings | Menu button; Back steps out |
 | Playback | Review photos | Play button; Play or half-press returns to Shoot |
 
-Modules in `evfcam/` (`settings.py` and `menu.py` arrive in milestone 2):
+Modules in `evfcam/`:
 
 | Module | Job |
 | --- | --- |
@@ -29,20 +29,20 @@ Modules in `evfcam/` (`settings.py` and `menu.py` arrive in milestone 2):
 
 ## Menu (two levels)
 
-- **Shooting:** JPEG / RAW+JPEG, quality, aspect (4:3, 3:2, 1:1), self-timer
+- **Shooting:** JPEG / RAW+JPEG, quality, aspect (4:3, 3:2, 1:1, 16:9)
 - **Exposure:** Auto / Shutter priority / Manual, shutter, ISO, exposure compensation, metering (aperture is on the lens)
-- **Colour:** white balance, contrast, saturation, black and white
-- **Lens:** 9 mm / 17 mm, written to each photo's EXIF
-- **Display:** focus square, focus bar, info level, EVF brightness
-- **Setup:** date and time, Wi-Fi, storage, battery, power off
+- **Colour:** white balance, contrast, saturation, sharpness, black and white
+- **Lens:** 9 mm / 17 mm / Other (saved now; written to each photo's EXIF in milestone 4)
+- **Display:** capture flash, review after shot, focus square, focus bar, info level
+- **Setup:** date and time, storage, photo count, version, reset all settings
 
-Navigation: pad up/down moves, OK or right enters, Back or left leaves, thumb wheel changes the value.
+Navigation: pad up/down moves; on the page list OK or right opens; inside a page left/right or the thumb wheel change the value and OK steps it; Back goes up a level; Menu closes. In Shoot mode the wheel sets EV (A) or shutter speed (S, M), and up/down set ISO in M.
 
 ## Milestones
 
 - [x] 0. Bench bring-up: preview, overlay, focus meter, shutter button (`bench/`)
 - [x] 1. App skeleton: modes, keyboard input, overlay (`evfcam/`, basic playback included)
-- [ ] 2. Settings + menu
+- [x] 2. Settings + menu (`settings.py`, `menu.py`; saved to `~/.config/evfcam/settings.json`)
 - [ ] 3. Playback
 - [ ] 4. Lens selection and EXIF
 - [ ] 5. Real buttons and dials (gpio-key / rotary-encoder overlays)
