@@ -12,7 +12,7 @@ A compact rangefinder-style digital camera built on a Raspberry Pi Zero 2 W and 
 | Lenses | Fujinon-TV 9 mm f/1.4, 17 mm f/1.7 (C-mount) |
 | Shutter | Alps SKRNPEE010 two-stage switch (bench: 6×6 tact switch) |
 | Power | Adafruit bq25185 USB-C charger + 5 V boost, 1-cell Li-ion |
-| Sensors | MAX17048 fuel gauge, VCNL4040 eye sensor (I²C) |
+| Sensors | Deferred: MAX17048 fuel gauge, VCNL4040 eye sensor (I²C pins kept free) |
 
 ## Repository layout
 
@@ -37,7 +37,8 @@ sudo apt install -y rpicam-apps-lite python3-pil python3-evdev python3-numpy pyt
 mkdir -p ~/evfpi && cd ~/evfpi
 python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
-pip install adafruit-blinka adafruit-circuitpython-max1704x adafruit-circuitpython-vcnl4040
+# later, for the deferred sensors:
+# pip install adafruit-blinka adafruit-circuitpython-max1704x adafruit-circuitpython-vcnl4040
 git clone https://github.com/werksmini/EVFCamera.git
 ```
 

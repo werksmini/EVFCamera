@@ -44,5 +44,6 @@ Navigation: pad up/down moves, OK or right enters, Back or left leaves, thumb wh
 - [ ] 4. Lens selection and EXIF
 - [ ] 5. Real buttons and dials (gpio-key / rotary-encoder overlays)
 - [ ] 6. Start at boot (systemd service)
-- [ ] 7. Battery gauge, eye sensor, clean power-off
+- [ ] 7. Clean power-off
+- [ ] Later: battery gauge (MAX17048) and eye sensor (VCNL4040), deferred to save space
 - [ ] 8. Polish: speed, look, field testing
