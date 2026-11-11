@@ -11,16 +11,19 @@ The camera is always in one **mode**; each mode decides what the controls do and
 | Menu | Change settings | Menu button; Back steps out |
 | Playback | Review photos | Play button; Play or half-press returns to Shoot |
 
-Planned modules in `evfcam/`:
+Modules in `evfcam/` (`settings.py` and `menu.py` arrive in milestone 2):
 
 | Module | Job |
 | --- | --- |
 | `app.py` | Main loop: reads input events, passes them to the current mode, redraws |
-| `camcore.py` | Owns Picamera2: preview config, still capture, controls, metadata |
+| `camcore.py` | Owns Picamera2: preview config, still capture, controls, metadata; `FakeCamera` for off-Pi work |
 | `ui.py` | Draws the overlay (Pillow RGBA) for the current mode |
 | `menu.py` | Menu defined as data; one renderer and navigator for every page |
 | `settings.py` | All adjustable settings in one object, saved to JSON |
-| `inputs.py` | Turns key and dial events into actions (`UP`, `OK`, `DIAL+1`, `SHUTTER_FULL`...) |
+| `inputs.py` | Turns key and dial events into actions (`UP`, `OK`, `DIAL_UP`, `SHUTTER_FULL`...) |
+| `actions.py` | The list of actions and the key maps |
+| `modes.py` | Shoot, Magnify, Menu, Playback |
+| `config.py` | Fixed hardware settings: screen layout, pins, paths |
 
 **Input:** the gpio-key and rotary-encoder overlays turn buttons and dials into Linux input events, the same kind a USB keyboard produces. A keyboard stands in for every control until the real ones are wired.
 
@@ -38,7 +41,7 @@ Navigation: pad up/down moves, OK or right enters, Back or left leaves, thumb wh
 ## Milestones
 
 - [x] 0. Bench bring-up: preview, overlay, focus meter, shutter button (`bench/`)
-- [ ] 1. App skeleton: modes, keyboard input, overlay
+- [x] 1. App skeleton: modes, keyboard input, overlay (`evfcam/`, basic playback included)
 - [ ] 2. Settings + menu
 - [ ] 3. Playback
 - [ ] 4. Lens selection and EXIF

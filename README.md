@@ -22,7 +22,11 @@ A compact rangefinder-style digital camera built on a Raspberry Pi Zero 2 W and 
 | `hardware/kicad/` | Footprints and PCB files |
 | `docs/` | Roadmap and design notes |
 
-The camera app itself will live in `evfcam/` (see [docs/roadmap.md](docs/roadmap.md)).
+| `evfcam/` | The camera app |
+| `tests/` | Mode and control tests (run anywhere with the fake camera) |
+| `tools/` | Helpers, e.g. `render_screens.py` draws every screen to PNG |
+
+See [docs/roadmap.md](docs/roadmap.md) for the architecture and milestones.
 
 ## Setup on the Pi
 
@@ -49,6 +53,33 @@ video=HDMI-A-1:1600x720,rotate=180
 ```
 
 For the EVF instead: `video=HDMI-A-1:1280x960@60D`.
+
+## Running the camera app
+
+```bash
+cd ~/evfpi/EVFCamera && git pull
+python3 -m evfcam            # bench monitor (flipped, 960x720 window)
+python3 -m evfcam --evf      # 0.4" EVF, 1280x960, not flipped
+python3 -m evfcam --fake     # no camera: work on the UI anywhere
+```
+
+Controls, typed in the SSH terminal or on a keyboard plugged into the Pi:
+
+| Key | Camera control | Shoot | Magnify | Menu | Playback |
+| --- | --- | --- | --- | --- | --- |
+| Space | Shutter (full) | Take photo | Take photo | Close | Close |
+| `h` | Shutter (half) | – | Close | Close | Close |
+| Enter | OK | Magnify 5× | 10×, then off | Open page | – |
+| Arrows | D-pad | – | – | Move | ← → browse |
+| `m` | Menu | Open menu | Close | Close | Close |
+| `p` | Play | Playback | Playback | – | Close |
+| `b` / Backspace | Back | Reset EV | Close | Up a level | Close |
+| `[` `]` | Thumb wheel | EV −/+ ⅓ | – | – | Browse |
+| `q` | – | Quit | Quit | Quit | Quit |
+
+The bench shutter button on GPIO 27 also works. Photos save to `~/evfpi/photos`.
+
+Run the tests: `python3 tests/test_modes.py`
 
 ## Bench scripts
 
