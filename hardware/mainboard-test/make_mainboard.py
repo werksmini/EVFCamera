@@ -301,6 +301,58 @@ def board():
             f'<signals>{sig_xml}</signals></board></drawing></eagle>\n')
 
 
+def schematic_script(lbr_path="@LBR@"):
+    """EAGLE commands that rebuild the schematic inside an open Fusion schematic (run with SCRIPT).
+    Same parts, places and labelled net stubs as schematic(); @LBR@ is replaced with the library path."""
+    place = {"J1": (60.96, 101.6)}
+    for i, (name, *_r) in enumerate(SWITCHES):
+        place[name] = (127.0, 152.4 - i * 12.7)
+    for i, (name, *_r) in enumerate(HEADERS):
+        place[name] = (20.32 + (i % 3) * 45.72, 45.72 - (i // 3) * 30.48)
+    cmds = ["SET CONFIRM YES;", "GRID MM 2.54;", f"USE '{lbr_path}';"]
+    for name, ds, value, pins in parts():
+        x, y = place[name]
+        cmds.append(f"ADD {ds}@{LIB} '{name}' R0 ({f(x)} {f(y)});")
+        cmds.append(f"VALUE '{name}' '{value}';")
+    for name, ds, value, pins in parts():
+        px, py = place[name]
+        for pin, pad, net in pins:
+            if name == "J1":
+                sx, sy, d = pi_pin_xy(int(pin[1:]))
+            elif ds == "TACT_6X6":
+                sx, sy, d = (-5.08, 0, -1) if pin == "A" else (5.08, 0, 1)
+            else:
+                sx, sy, d = -5.08, -2.54 * (int(pin) - 1), -1
+            x1, y1 = px + sx, py + sy
+            x2 = x1 + d * 7.62
+            cmds.append(f"NET '{net}' ({f(x1)} {f(y1)}) ({f(x2)} {f(y1)});")
+            cmds.append(f"LABEL XREF {'R0' if d > 0 else 'R180'} ({f(x2)} {f(y1)}) ({f(x2)} {f(y1)});")
+    cmds.append("TEXT 'EVFCamera test mainboard v0.1' R0 (0 170);")
+    cmds.append("WINDOW FIT;")
+    return "\n".join(cmds) + "\n"
+
+
+def board_script():
+    """EAGLE commands for the board editor: outline and part placement (run after creating the PCB)."""
+    cmds = ["SET CONFIRM YES;", "GRID MM 1;", "LAYER 20;",
+            f"WIRE 0 (0 0) ({f(BOARD_W)} 0) ({f(BOARD_W)} {f(BOARD_H)}) (0 {f(BOARD_H)}) (0 0);"]
+    pos = {"J1": (J1_POS[0], J1_POS[1], "R0")}
+    for name, x, y, *_ in SWITCHES:
+        pos[name] = (x, y, "R0")
+    for name, x, y, *_ in HEADERS:
+        rot = "R0"
+        if name in HEADER_VERTICAL:
+            rot = "R270" if x > BOARD_W / 2 else "R90"
+        pos[name] = (x, y, rot)
+    for name, (x, y, rot) in pos.items():
+        cmds.append(f"MOVE '{name}' ({f(x)} {f(y)});")
+        if rot != "R0":
+            cmds.append(f"ROTATE ={rot} '{name}';")
+    cmds.append("RATSNEST;")
+    cmds.append("WINDOW FIT;")
+    return "\n".join(cmds) + "\n"
+
+
 def netlist_csv(path):
     with open(path, "w", newline="") as fh:
         w = csv.writer(fh)
@@ -323,3 +375,10 @@ if __name__ == "__main__":
         print("wrote", fname)
     netlist_csv(os.path.join(HERE, "netlist.csv"))
     print("wrote netlist.csv")
+    with open(os.path.join(HERE, "evfcam.lbr"), "w") as fh:
+        fh.write(head() + library(False) + "</drawing></eagle>\n")
+    with open(os.path.join(HERE, "schematic.scr"), "w") as fh:
+        fh.write(schematic_script())
+    with open(os.path.join(HERE, "board.scr"), "w") as fh:
+        fh.write(board_script())
+    print("wrote evfcam.lbr, schematic.scr, board.scr")
