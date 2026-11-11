@@ -55,15 +55,14 @@ class Shoot(Mode):
             # thumb wheel: EV in Auto, shutter speed in Shutter and Manual
             d = 1 if a == A.DIAL_UP else -1
             if st.exp_mode == "Auto":
-                app.change("ev", d, toast=lambda v: f"EV {menu.ev_label(v)}")
+                app.change("ev", d)                     # shown in the top bar
             else:
-                app.change("shutter_us", -d, toast=menu.shutter_label)   # wheel right = faster
+                app.change("shutter_us", -d)            # wheel right = faster
         elif a in (A.UP, A.DOWN) and st.exp_mode == "Manual":
-            app.change("iso", 1 if a == A.UP else -1, toast=lambda v: f"ISO {v}")
+            app.change("iso", 1 if a == A.UP else -1)
         elif a == A.BACK and st.ev and st.exp_mode != "Manual":
             st.ev = 0.0
             app.settings_changed("ev")
-            app.ui.toast("EV reset", 0.8)
         return None
 
     def render(self, md):

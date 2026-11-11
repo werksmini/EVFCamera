@@ -77,6 +77,7 @@ class Camera:
         self.mode_txt = f"{s['output_size'][0]}x{s['output_size'][1]} {s['bit_depth']}-bit"
         self.raw = False
         self.still_cfg = None
+        self.live_controls = {}
 
     # --- settings ------------------------------------------------------------------------
     def apply(self, settings):
@@ -96,6 +97,12 @@ class Camera:
         for k, v in wanted.items():
             if k in available or k == "AeEnable" and "AeEnable" in available:
                 out[k] = enums[k](v) if k in enums else v
+        # Picamera2 resets controls to the configuration's own list whenever it switches between
+        # preview and still, so the settings must live in both configurations, not just be set.
+        self.live_controls = out
+        self.preview_cfg["controls"].update(out)
+        if self.still_cfg is not None:
+            self.still_cfg["controls"].update(out)
         self.p.set_controls(out)
 
     def update_still(self, settings):
@@ -107,7 +114,7 @@ class Camera:
             raw={} if self.raw else None,
             buffer_count=1,                              # saves memory on the Zero
             transform=self.Transform(),                  # photos are never flipped
-            controls={"ScalerCrop": (x, y, w, h)},
+            controls={**self.live_controls, "ScalerCrop": (x, y, w, h)},
         )
         self.p.options["quality"] = settings.jpeg_quality
 
@@ -135,17 +142,23 @@ class Camera:
     def capture(self, path: str):
         """Take a photo. Returns the list of files written."""
         self.set_zoom(1)
-        if not self.raw:
-            self.p.switch_mode_and_capture_file(self.still_cfg, path)
-            return [path]
-        dng = path[:-4] + ".dng"
-        req = self.p.switch_mode_and_capture_request(self.still_cfg)
+        # Switch modes ourselves (not switch_mode_and_capture_*), so the way back uses
+        # self.preview_cfg with the current settings in it.
+        self.p.switch_mode(self.still_cfg)
         try:
-            req.save("main", path)
-            req.save_dng(dng)
+            if not self.raw:
+                self.p.capture_file(path)
+                return [path]
+            dng = path[:-4] + ".dng"
+            req = self.p.capture_request()
+            try:
+                req.save("main", path)
+                req.save_dng(dng)
+            finally:
+                req.release()
+            return [path, dng]
         finally:
-            req.release()
-        return [path, dng]
+            self.p.switch_mode(self.preview_cfg)
 
     def show_overlay(self, rgba: np.ndarray):
         self.p.set_overlay(rgba)
