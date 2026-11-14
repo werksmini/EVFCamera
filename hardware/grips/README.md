@@ -1,67 +1,71 @@
 # Bouldering-hold grips
 
-Seeded generator for organic, brightly coloured grips that bolt onto the camera body.
-**Front:** a finger crimp, 1× M2.5 SHCS + Ø2 mm dowel pin. **Rear:** a thumb sloper with a dish, 2× M2.5 SHCS.
-Every grip has a flat mating face, and the fastener geometry is exact. Output is a watertight STL for MJF.
+Seeded generator for smooth, brightly coloured grips that bolt onto the camera body, shaped like cast climbing holds.
+Output: watertight STL in **millimetres** (set Unit Type = Millimeter when inserting into Fusion).
 
 ![front](front_sheet.png)
 ![rear](rear_sheet.png)
-![texture](texture_front_s04.png)
+
+## Styles
+
+| Style | Shape | Footprint W × H | Height |
+| --- | --- | --- | --- |
+| `front-crimp` | Rounded square edge on the lens side, top leans over it, face slopes back | 18–24 × 44–54 mm | ~10–14 mm |
+| `front-pinch` | Narrow fin with two rounded flanks | 14–18 × 44–54 mm | 11–15 mm |
+| `rear-crimp` | Small thumb edge on the EVF side | 16–21 × 31–35 mm | ~7–8 mm |
+| `rear-sloper` | Smooth dome with a shallow thumb dish | 18–23 × 31–35 mm | 7–9 mm |
+
+Each comes as **2-bolt** or **1-bolt**.
+
+## Standard hole pattern (the same on every grip position)
+
+Three M2.5 tapped holes in the body, in a vertical line at **y = −10, 0, +10 mm (10 mm pitch)**. Any grip fits any position.
+
+- **2-bolt:** M2.5 SHCS at ±10 mm (20 mm spacing).
+- **1-bolt:** M2.5 SHCS in the centre hole. Against rotation, an **M2.5 × 4 set screw** stands 2.5 mm proud in the +10 hole and sits in a Ø3.0 × 3.2 mm pocket in the grip. No pressed dowel needed.
+- Grip holes: Ø3.0 clearance, Ø5.2 counterbore (MJF allowance).
+- Screws: front M2.5×8, rear M2.5×6 or ×8, assuming ~4 mm of thread in the body.
 
 ## Use
 
 ```bash
 pip install numpy scipy scikit-image trimesh matplotlib
-python3 gripgen.py front --seeds 0-11            # out/front_s00.stl … + params .json
-python3 gripgen.py rear --good 12                # first 12 seeds that pass every check
-python3 gripgen.py front --seeds 4 --texture --voxel 0.15   # print-ready, with hold grain (~20 MB)
-python3 sheet.py front front_sheet.png --seeds 0-11         # contact sheet: oblique / face / side
+python3 gripgen.py front-crimp --bolts 2 --good 3     # first 3 seeds passing every check -> out/*.stl + .json
+python3 gripgen.py rear-sloper --bolts 1 --seeds 5    # one specific design
+python3 sheet.py front front_sheet.png                # contact sheet: every front style x bolt count
 ```
 
-A seed always gives the same grip, so "front s04" names a design. Its parameters are saved beside the STL.
+A name like `front-crimp-2b_s01` always regenerates the same grip.
 
-## How it works
+## How it works (v2)
 
-1. **Signed distance field.** Each grip is a function `d(x, y, z)`: negative inside, positive outside, zero on the surface. Shapes combine with simple arithmetic: `min` = union, `max` = intersection, `max(a, -b)` = cut b out of a. *Smooth* min/max blend the join with a fillet radius `k`, which is what makes it organic.
-2. **Recipe per seed** (`make_params`), random within the bounds:
-   - 3–5 **lobes** (ellipsoids) along the height, sized to fit the footprint, centres sunk 15–40 % below the mating face so the edges come down to the body.
-   - A **lip** on the lens side (front: the crimp edge your fingertips curl over) or the EVF side (rear: a rim that cradles the thumb; 70 % of seeds).
-   - **Dents** (1–4 shallow scoops) for the faceted look of a cast hold; front **finger scallops** (0–3); rear **thumb dish** between the screws.
-3. **Fastener bosses** are added *after* the carving, so dents and the dish can never thin the material around a screw.
-4. **Bounds:** a soft box clip (only a safety net), then a hard cut at z = 0, which gives an exactly flat mating face.
-5. **Holes** are cut last and exactly: Ø3.0 clearance, Ø5.2 counterbore from the seat up, Ø2.15 × 4 mm blind pin hole.
-6. **Checks** (`check`), on every seed:
+Each grip is one continuous swept form, described as a signed distance field (negative inside, positive outside):
+
+1. **Spine:** a gently curved line up the grip (a bow plus a slight S-bend).
+2. **Envelope:** width and height taper to rounded ends along the spine (a superellipse), and one end can be fuller than the other, giving the bean shape.
+3. **Cross-section** swept along the spine:
+   - **crimp:** squarer on the edge side, softer on the back, sheared so the top overhangs the edge;
+   - **pinch:** a tall rounded section with a slight waist;
+   - **sloper:** a low dome with a dish cut in.
+4. **Fasteners:** soft bosses blend in under each fastener. The mating face is cut flat at z = 0, and the holes are cut last, exactly.
+5. **Checks on every seed:**
    - ≥ 2.5 mm wall around each counterbore;
-   - the screw head sits ≥ 0.3 mm below the surface all round its rim;
-   - ≥ 1.5 mm of material over the pin hole.
-7. **Mesh:** marching cubes on a 0.3 mm grid (0.15 mm with texture), keep the largest piece, fix normals → watertight STL.
-8. **Texture** (optional): 28 random plane waves, 0.6–1.6 mm wavelength, ±0.07 mm. It fades out near the mating face, and holes are cut after it.
+   - the screw head ≥ 0.3 mm below the surface;
+   - ≥ 1.5 mm of material over the locator pocket.
+6. **Mesh:** marching cubes on a 0.25 mm grid, keeping the largest piece.
 
-## Bounds and fasteners (edit `BOUNDS` and the constants at the top)
+Nothing random is added to the surface, so curvature stays continuous. `gripgen_v1.py` is the earlier lumpy, blob-based generator.
 
-| | Front | Rear |
-| --- | --- | --- |
-| Footprint W × H | 20–28 × 45–55 mm | 18–24 × 30–34 mm |
-| Protrusion | 9–14 mm | 6.5–9 mm |
-| Seat under head | 3.0 mm | 2.5 mm |
-| Fasteners | 1× M2.5 at centre, dowel 0.55 × H/2 above | 2× M2.5 at ±0.55 × H/2 |
-
-Coordinates: x across the camera (−x = lens side on the front, EVF side on the rear), y up, z out of the body.
-For a grip on the other hand, mirror x in Fusion.
-
-**Screw length** = seat + thread engagement. With ≥ 4 mm of thread in the body: front M2.5×8, rear M2.5×6 or ×8.
-Tapped aluminium, or brass heat-set inserts in a printed body.
-**Dowel:** Ø2 mm × 6 mm, pressed into the body; the grip slides over it (Ø2.15 hole allows for MJF shrink).
+Coordinates: x across the camera (−x = lens side on the front, EVF side on the rear), y up, z out of the body. For the other hand, mirror x.
 
 ## Into Fusion
 
-- **Mesh workspace:** Insert > Insert Mesh, pick the STL, place it on the body face (the mating face is z = 0).
-- For a solid: **Modify > Convert Mesh**. *Faceted* works on any mesh. For a smooth editable body, first **Remesh** (to a few thousand quads), then convert *Organic*, or rebuild over it in Form.
-- STEP from a mesh is still faceted; for MJF printing, send the STL (or 3MF) as-is.
+**Insert > Insert Mesh**, set **Unit Type = Millimeter**, then place the flat face on the body.
+To get a solid: **Mesh > Modify > Convert Mesh** (Faceted), or Remesh first and then convert (Organic).
 
 ## Making them
 
-- **MJF PA12, dyed:** tough, slightly grainy (that suits the look).
-- **Bright colours:** dyed MJF is limited and mostly dark. For fluoro yellow, orange or magenta, either:
-  - use MJF in white and dye it yourself (RIT DyeMore for synthetics), or
-  - cast pigmented urethane from a silicone mould of an MJF master, like real holds.
+- **MJF PA12:** tough, with a slight grain that suits the look.
+- **For fluoro colours:**
+  - print in white and dye it (RIT DyeMore), or
+  - cast pigmented urethane from a silicone mould of an MJF master.

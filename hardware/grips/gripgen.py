@@ -1,88 +1,77 @@
 """Bouldering-hold grips for the EVF camera: seeded generator -> watertight STL.
 
-Each grip is a signed distance field (SDF): negative inside, positive outside.
-Shapes are smooth unions of ellipsoid "lobes", carved with smooth subtractions
-(finger scallops, thumb dish), clipped to a bounding box and cut flat at the
-mating face (z = 0). Fastener holes are subtracted last, so they are always exact.
-Marching cubes turns the field into a mesh.
+v2: smooth, continuous holds like real cast holds. Each grip is ONE swept form:
+  - a gently curved spine running up the grip (bow + slight S),
+  - a cross-section profile swept along it (crimp, pinch or sloper),
+  - a superellipse envelope that tapers width and height to rounded ends.
+Nothing random is added on the surface, so curvature stays continuous.
 
-Grip coordinates (mm), seen from outside, looking at the face the grip bolts to:
-  x  across the camera; -x is the side nearest the lens (front) or EVF (rear)
-  y  up
-  z  out of the camera body; z = 0 is the flat mating face
+Signed distance field (SDF): negative inside, positive outside. Fastener bosses are blended in,
+the mating face is cut flat at z = 0, holes are cut last and exactly. Marching cubes -> STL (mm).
 
-  python3 gripgen.py front --seeds 0-11          # contact sheet + STLs + params
-  python3 gripgen.py rear --seeds 3 --texture    # one textured grip
+Standard hole pattern on the camera body (same for every grip, front and rear):
+  three M2.5 tapped holes in a vertical line at y = -10, 0, +10 mm (10 mm pitch).
+  2-bolt grips: M2.5 SHCS at y = +/-10 (20 mm spacing).
+  1-bolt grips: M2.5 SHCS at y = 0, located against rotation by an M2.5 x 4 set screw
+                left standing 2.5 mm proud in the y = +10 hole (grip has a blind pocket over it).
+
+Grip coordinates (mm), looking at the face the grip bolts to:
+  x across the camera, -x = lens side (front) / EVF side (rear); y up; z out of the body.
+
+  python3 gripgen.py front-crimp --bolts 2 --seeds 0-3
+  python3 gripgen.py rear-sloper --bolts 1 --good 4
 """
 import argparse
 import json
 import pathlib
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass
 
 import numpy as np
 import trimesh
 from skimage.measure import marching_cubes
 
 # --- fasteners (ISO 4762 M2.5 SHCS; MJF holes slightly oversize) -------------------------------------
+PITCH = 10.0             # standard hole pitch on the body
 M25_CLEAR = 3.0          # clearance hole dia (2.9 nominal + MJF allowance)
 M25_CB = 5.2             # counterbore dia (head 4.5)
 M25_HEAD = 2.5           # head height
-PIN_HOLE = 2.15          # slip fit on a 2 mm dowel pressed into the body
-PIN_DEPTH = 4.0
+LOC_HOLE = 3.0           # blind pocket over the locating set screw (M2.5, 2.5 mm proud)
+LOC_DEPTH = 3.2
 WALL = 2.5               # minimum material around a counterbore
-RECESS = 0.3             # head sits this far below the surface, at least
+RECESS = 0.3             # head sits at least this far below the surface
+
+
+def pattern(bolts):
+    """(screws, locators) as (x, y) in grip coordinates."""
+    if bolts == 2:
+        return [(0.0, -PITCH), (0.0, PITCH)], []
+    return [(0.0, 0.0)], [(0.0, PITCH)]
 
 
 @dataclass
-class Bounds:
-    w: tuple             # footprint width range (x)
-    h: tuple             # footprint height range (y)
-    p: tuple             # protrusion range (z)
-    seat: float          # material under the screw head
-    screws: list         # screw positions as fractions of (w/2, h/2)
-    pins: list = field(default_factory=list)
+class Style:
+    w: tuple        # footprint width range (x), mm
+    h: tuple        # footprint height range (y), mm
+    p: tuple        # protrusion range (z), mm
+    seat: float     # material under the screw head
+    profile: str    # crimp | pinch | sloper
 
 
-BOUNDS = {
-    # front crimp/edge for the fingers: one screw + a dowel pin against rotation
-    "front": Bounds(w=(20, 28), h=(45, 55), p=(9, 14), seat=3.0, screws=[(0.15, -0.05)], pins=[(0.15, 0.55)]),
-    # rear thumb sloper with a dish: two screws, top and bottom, clear of the thumb pad
-    "rear": Bounds(w=(18, 24), h=(30, 34), p=(6.5, 9), seat=2.5, screws=[(0.1, 0.55), (0.1, -0.55)]),
+STYLES = {
+    # fingers curl over a rounded positive edge on the lens side; the face slopes back toward the body end
+    "front-crimp": Style(w=(18, 24), h=(44, 54), p=(11, 15), seat=3.0, profile="crimp"),
+    # a narrow, taller fin with two pinchable flanks
+    "front-pinch": Style(w=(14, 18), h=(44, 54), p=(12, 15), seat=3.0, profile="pinch"),
+    # thumb edge: a small crimp the thumb pad hooks over
+    "rear-crimp": Style(w=(16, 21), h=(31, 35), p=(8.3, 10), seat=2.5, profile="crimp"),
+    # thumb sloper: a smooth dome with a shallow dish for the thumb pad
+    "rear-sloper": Style(w=(18, 23), h=(31, 35), p=(7, 9), seat=2.5, profile="sloper"),
 }
 
 COLOURS = ["#ffd400", "#ff6a00", "#00b8a9", "#ff2e88", "#7cdf00", "#2f7bff", "#9d4dff", "#ff3b30"]
 
 
-# --- SDF primitives ------------------------------------------------------------------------------------
-def ellipsoid(P, c, r, rot=0.0):
-    """Approximate ellipsoid distance (good near the surface). rot: tilt about z, radians."""
-    q = P - np.asarray(c, float)
-    if rot:
-        cs, sn = np.cos(rot), np.sin(rot)
-        q = np.stack([cs * q[..., 0] + sn * q[..., 1], -sn * q[..., 0] + cs * q[..., 1], q[..., 2]], -1)
-    r = np.asarray(r, float)
-    k0 = np.linalg.norm(q / r, axis=-1)
-    k1 = np.linalg.norm(q / (r * r), axis=-1)
-    return k0 * (k0 - 1.0) / np.maximum(k1, 1e-9)
-
-
-def capsule_x(P, y, z, r, x0=-50, x1=50):
-    """Horizontal capsule (along x) used for finger scallops."""
-    qx = np.clip(P[..., 0], x0, x1)
-    return np.sqrt((P[..., 0] - qx) ** 2 + (P[..., 1] - y) ** 2 + (P[..., 2] - z) ** 2) - r
-
-
-def cylinder_z(P, x, y, r, z0, z1):
-    d_r = np.hypot(P[..., 0] - x, P[..., 1] - y) - r
-    d_z = np.maximum(z0 - P[..., 2], P[..., 2] - z1)
-    return np.maximum(d_r, d_z)
-
-
-def box(P, half):
-    q = np.abs(P) - np.asarray(half, float)
-    return np.linalg.norm(np.maximum(q, 0), axis=-1) + np.minimum(q.max(-1), 0)
-
-
+# --- SDF helpers ---------------------------------------------------------------------------------------
 def smin(a, b, k):
     h = np.clip(0.5 + 0.5 * (b - a) / k, 0, 1)
     return b * (1 - h) + a * h - k * h * (1 - h)
@@ -92,164 +81,143 @@ def smax(a, b, k):
     return -smin(-a, -b, k)
 
 
-# --- shape recipes -------------------------------------------------------------------------------------
-def make_params(kind, seed):
-    rng = np.random.default_rng(seed)
-    B = BOUNDS[kind]
+def superellipse(a, b, ra, rb, n):
+    return (np.abs(a / ra) ** n + np.abs(b / rb) ** n) ** (1 / n) - 1
+
+
+def ellipsoid(P, c, r):
+    q = (P - np.asarray(c, float)) / np.asarray(r, float)
+    k0 = np.linalg.norm(q, axis=-1)
+    k1 = np.linalg.norm(q / np.asarray(r, float), axis=-1)
+    return k0 * (k0 - 1.0) / np.maximum(k1, 1e-9)
+
+
+def cylinder_z(P, x, y, r, z0, z1):
+    d_r = np.hypot(P[..., 0] - x, P[..., 1] - y) - r
+    return np.maximum(d_r, np.maximum(z0 - P[..., 2], P[..., 2] - z1))
+
+
+# --- recipe ----------------------------------------------------------------------------------------------
+def make_params(style, bolts, seed):
+    rng = np.random.default_rng(seed * 7919 + bolts * 31 + sum(map(ord, style)))
+    S = STYLES[style]
     u = lambda lo, hi: float(rng.uniform(lo, hi))
-    W, H, Pz = u(*B.w), u(*B.h), u(*B.p)
-    prm = dict(kind=kind, seed=seed, W=W, H=H, P=Pz, colour=COLOURS[seed % len(COLOURS)])
-    n = int(rng.integers(3, 6)) if kind == "front" else int(rng.integers(3, 5))
-    # lobes spread along the height. Each is sized to fit inside the bounds (the box clip is only a safety
-    # net) and centred below the mating face, so its edge meets the camera at a shallow angle like a real hold.
-    ys = (np.linspace(-0.62, 0.62, n) + rng.uniform(-0.08, 0.08, n)) * H / 2
-    lobes = []
-    for y in ys:
-        cx = u(-0.08, 0.14) * W
-        sink = u(0.15, 0.4)                      # centre depth below z=0 as a fraction of rz
-        peak = u(0.72, 1.0) * Pz
-        rz = peak / (1 - sink)
-        rx = (W / 2 - abs(cx)) * u(0.82, 0.98) / np.sqrt(1 - sink ** 2)
-        ry = min(u(1.0, 1.35) * H / n + 4, (H / 2 - abs(y)) * u(0.9, 1.05)) / np.sqrt(1 - sink ** 2)
-        lobes.append(dict(c=[cx, float(y), -sink * rz], r=[rx, max(ry, 6.0), rz], rot=u(-0.3, 0.3)))
-    prm["lobes"] = lobes
-    # dents: shallow smooth scoops that break up the surface, like the facets on a cast hold
-    prm["dents"] = [dict(c=[u(-0.35, 0.35) * W, u(-0.4, 0.4) * H], r=u(3.5, 7), depth=u(0.4, 1.2))
-                    for _ in range(int(rng.integers(1, 5)))]
-    if kind == "front":
-        # the crimp: a fat rail on the lens side, set high and blended in, overhanging the lens-side base
-        rx = u(4.0, 6.0)
-        prm["lip"] = dict(c=[-(W / 2 - rx - u(0.3, 1.5)), u(-0.08, 0.08) * H, u(0.5, 0.62) * Pz],
-                          r=[rx, u(0.28, 0.36) * H, u(0.3, 0.42) * Pz], rot=u(-0.15, 0.15))
-        nf = int(rng.integers(0, 4))
-        prm["scallops"] = [dict(y=float(y), r=u(7, 10), depth=u(0.8, 2.0))
-                           for y in (np.arange(nf) - (nf - 1) / 2) * u(15, 19)]
-        prm["dish"] = None
+    prm = dict(style=style, bolts=bolts, seed=seed, profile=S.profile, colour=COLOURS[seed % len(COLOURS)],
+               W=u(*S.w), L=u(*S.h), P=u(*S.p),
+               bow=u(-0.07, 0.07), sbend=u(-0.04, 0.04),       # spine curvature, fraction of length
+               yoff=u(-0.04, 0.04),                            # spine centre offset along y, fraction
+               env_n=u(2.2, 3.2),                              # end shape: 2 = elliptical, higher = squarer
+               wtaper=u(-0.25, 0.25), htaper=u(-0.2, 0.2),    # one end wider / taller (bean shape)
+               n=u(2.2, 2.8), cb=u(0.3, 0.5))                  # section squareness, how deep the dome sinks
+    if S.profile == "crimp":
+        # edge side (-x) squarer than the back, top leans over the edge, face slopes down to the back
+        prm.update(tilt=u(0.3, 0.5), n_edge=u(3.4, 4.6), lean=u(0.12, 0.24), lip=None)
+    elif S.profile == "pinch":
+        prm.update(tilt=u(-0.08, 0.08), lip=None, waist=u(0.0, 0.12))
     else:
-        # thumb dish between the screws, and a raised rim on the EVF side to cradle the thumb
-        rx = u(3.5, 5.0)
-        prm["lip"] = dict(c=[-(W / 2 - rx - u(0.3, 1.5)), u(-0.06, 0.06) * H, u(0.5, 0.65) * Pz],
-                          r=[rx, u(0.25, 0.33) * H, u(0.35, 0.45) * Pz], rot=u(-0.3, 0.3)) if rng.random() < 0.7 else None
-        prm["scallops"] = []
-        prm["dish"] = dict(c=[u(-0.05, 0.15) * W, u(-0.08, 0.08) * H], r=[u(9, 13), u(10, 14)], depth=u(1.5, 2.5))
-    prm["texture"] = dict(seed=seed, amp=0.07, wl=(0.6, 1.6))
+        prm.update(tilt=u(0.05, 0.18), lip=None,
+                   dish=dict(x=u(0.0, 0.12), y=u(-0.06, 0.06), r=u(10, 13), depth=u(1.2, 2.0)))
     return prm
 
 
-def holes(prm):
-    B = BOUNDS[prm["kind"]]
-    W, H = prm["W"], prm["H"]
-    s = [(fx * W / 2, fy * H / 2) for fx, fy in B.screws]
-    p = [(fx * W / 2, fy * H / 2) for fx, fy in B.pins]
-    return s, p
-
-
-def shape_sdf(P, prm, texture=False, with_holes=True):
-    B = BOUNDS[prm["kind"]]
-    W, H, Pz = prm["W"], prm["H"], prm["P"]
-    d = None
-    for L in prm["lobes"]:
-        e = ellipsoid(P, L["c"], L["r"], L["rot"])
-        d = e if d is None else smin(d, e, 4.0)
-    if prm["lip"]:
-        L = prm["lip"]
-        d = smin(d, ellipsoid(P, L["c"], L["r"], L["rot"]), 3.0)
-    screws, pins = holes(prm)
-    for D in prm.get("dents", []):
-        d = smax(d, -ellipsoid(P, [D["c"][0], D["c"][1], Pz * 0.9 + D["r"] - D["depth"]], [D["r"]] * 3), 1.0)
-    for S in prm["scallops"]:
-        top = Pz + S["r"] - S["depth"]
-        d = smax(d, -capsule_x(P, S["y"], top, S["r"]), 1.5)
-    if prm["dish"]:
+def shape_sdf(P, prm, with_holes=True):
+    S = STYLES[prm["style"]]
+    W, L, Pz = prm["W"], prm["L"], prm["P"]
+    x, y, z = P[..., 0], P[..., 1], P[..., 2]
+    yc = y - prm["yoff"] * L
+    uu = 2 * yc / L                                              # -1 .. 1 along the spine
+    sx = L * (prm["bow"] * (1 - uu ** 2) + prm["sbend"] * np.sin(np.pi * uu / 2))
+    slope = (prm["bow"] * (-2 * uu) + prm["sbend"] * np.pi / 2 * np.cos(np.pi * uu / 2)) * 2
+    s = (x - sx) / np.sqrt(1 + slope ** 2)
+    env = np.clip(1 - np.abs(uu) ** prm["env_n"], 1e-4, 1) ** (1 / prm["env_n"])
+    w = W / 2 * env * (1 + prm["wtaper"] * uu)
+    h = Pz * env ** 0.45 * (1 + prm["htaper"] * uu) / (1 + abs(prm["htaper"]))
+    a, b = s / w, z / h
+    # cross-section in normalised (a, b): dome sinks cb below the face, top at b = 1
+    cb, n = prm["cb"], prm["n"]
+    if prm["profile"] == "crimp":
+        a = a + prm["lean"] * np.clip(b, 0, None) ** 2             # top overhangs the edge side: positive hold
+        n = n + (prm["n_edge"] - n) / (1 + np.exp(np.clip(a / 0.2, -50, 50)))       # squarer toward the edge, smooth blend
+        b = b * (1 + prm["tilt"])                                  # keep the peak at the protrusion P
+    b2 = b + prm["tilt"] * a
+    if prm["profile"] == "pinch":
+        a = a * (1 + prm["waist"] * np.exp(-((b - 0.45) / 0.3) ** 2))   # slight waist on the flanks
+    sec = superellipse(a, b2 + cb, 1.0, 1.0 + cb, n)
+    d = sec * np.minimum(w, h) * 0.8                              # back to roughly mm
+    d = np.maximum(d, np.abs(yc) - L / 2)
+    if prm.get("dish"):
         D = prm["dish"]
-        rz = (D["r"][0] + D["r"][1]) / 2
-        d = smax(d, -ellipsoid(P, [D["c"][0], D["c"][1], Pz + rz - D["depth"]], [D["r"][0], D["r"][1], rz]), 1.5)
-    # a boss under each fastener (added after carving) guarantees the seat and the wall around the counterbore
-    for x, y in screws:
-        rb = M25_CB / 2 + WALL + 0.8
-        d = smin(d, ellipsoid(P, [x, y, 0], [rb, rb, B.seat + M25_HEAD + RECESS + 1.2]), 2.0)
-    # stay inside the bounding box (soft) and cut the mating face flat (hard)
-    d = smax(d, box(P - [0, 0, (Pz - 5) / 2], [W / 2, H / 2, (Pz + 5) / 2]), 3.0)   # box runs below z=0: only the hard cut makes the face
-    if texture:
-        d = d + sandy(P, prm["texture"]) * np.clip(P[..., 2] - 0.8, 0, 1)
-    d = np.maximum(d, -P[..., 2])
+        c = [D["x"] * W, D["y"] * L, Pz + D["r"] - D["depth"]]
+        d = smax(d, -ellipsoid(P, c, [D["r"], D["r"] * 1.2, D["r"]]), 2.0)
+    screws, locs = pattern(prm["bolts"])
+    for (hx, hy) in screws:
+        rb = M25_CB / 2 + WALL + 0.6
+        d = smin(d, ellipsoid(P, [hx, hy, 0], [rb, rb, S.seat + M25_HEAD + RECESS + 0.4]), 4.0)
+    for (hx, hy) in locs:
+        d = smin(d, ellipsoid(P, [hx, hy, 0], [3.5, 3.5, LOC_DEPTH + 1.8]), 4.0)
+    d = np.maximum(d, -z)                                         # flat mating face
     if with_holes:
-        for x, y in screws:
-            d = np.maximum(d, -cylinder_z(P, x, y, M25_CLEAR / 2, -1, 99))
-            d = np.maximum(d, -cylinder_z(P, x, y, M25_CB / 2, B.seat, 99))
-        for x, y in pins:
-            d = np.maximum(d, -cylinder_z(P, x, y, PIN_HOLE / 2, -1, PIN_DEPTH))
+        for (hx, hy) in screws:
+            d = np.maximum(d, -cylinder_z(P, hx, hy, M25_CLEAR / 2, -1, 99))
+            d = np.maximum(d, -cylinder_z(P, hx, hy, M25_CB / 2, S.seat, 99))
+        for (hx, hy) in locs:
+            d = np.maximum(d, -cylinder_z(P, hx, hy, LOC_HOLE / 2, -1, LOC_DEPTH))
     return d
 
 
-def sandy(P, T):
-    """Fine climbing-hold grain: a sum of random plane waves (cheap, smooth, isotropic)."""
-    rng = np.random.default_rng(1000 + T["seed"])
-    n = 28
-    dirs = rng.normal(size=(n, 3))
-    dirs /= np.linalg.norm(dirs, axis=1)[:, None]
-    k = 2 * np.pi / rng.uniform(*T["wl"], n)
-    ph = rng.uniform(0, 2 * np.pi, n)
-    out = np.zeros(P.shape[:-1])
-    for i in range(n):
-        out += np.sin((P @ dirs[i]) * k[i] + ph[i])
-    return out * T["amp"] / np.sqrt(n / 2)
-
-
-# --- checks --------------------------------------------------------------------------------------------
+# --- checks ------------------------------------------------------------------------------------------------
 def check(prm):
-    """Return a list of problems (empty = OK): wall around counterbores, head below the surface."""
-    B = BOUNDS[prm["kind"]]
-    screws, pins = holes(prm)
+    S = STYLES[prm["style"]]
+    screws, locs = pattern(prm["bolts"])
     probs = []
     ang = np.linspace(0, 2 * np.pi, 48, endpoint=False)
     for i, (x, y) in enumerate(screws):
         r = M25_CB / 2 + WALL
-        for z in np.linspace(0.3, B.seat + 0.5, 4):
-            ring = np.stack([x + r * np.cos(ang), y + r * np.sin(ang), np.full_like(ang, z)], -1)
+        for zz in np.linspace(0.3, S.seat + 0.5, 4):
+            ring = np.stack([x + r * np.cos(ang), y + r * np.sin(ang), np.full_like(ang, zz)], -1)
             if (shape_sdf(ring, prm, with_holes=False) > 0).any():
-                probs.append(f"screw {i + 1}: wall < {WALL} mm at z={z:.1f}")
+                probs.append(f"screw {i + 1}: wall < {WALL} mm")
                 break
-        # surface height on the screw axis: the head must sit at least RECESS below it everywhere on its rim
-        zz = np.linspace(0, 30, 601)
-        for a in np.linspace(0, 2 * np.pi, 12, endpoint=False):
-            cx, cy = x + M25_CB / 2 * np.cos(a), y + M25_CB / 2 * np.sin(a)
-            col = np.stack([np.full_like(zz, cx), np.full_like(zz, cy), zz], -1)
+        col_z = np.linspace(0, 30, 601)
+        for t in np.linspace(0, 2 * np.pi, 12, endpoint=False):
+            col = np.stack([np.full_like(col_z, x + M25_CB / 2 * np.cos(t)),
+                            np.full_like(col_z, y + M25_CB / 2 * np.sin(t)), col_z], -1)
             inside = shape_sdf(col, prm, with_holes=False) < 0
-            top = zz[inside].max() if inside.any() else 0
-            if top < B.seat + M25_HEAD + RECESS:
-                probs.append(f"screw {i + 1}: head proud (surface {top:.1f} mm < {B.seat + M25_HEAD + RECESS:.1f})")
+            top = col_z[inside].max() if inside.any() else 0
+            if top < S.seat + M25_HEAD + RECESS:
+                probs.append(f"screw {i + 1}: head proud")
                 break
-    for i, (x, y) in enumerate(pins):
-        col = np.array([[x, y, PIN_DEPTH + 1.5]])
-        if shape_sdf(col, prm, with_holes=False)[0] > 0:
-            probs.append(f"pin {i + 1}: less than 1.5 mm over the pin hole")
+    for (x, y) in locs:
+        if shape_sdf(np.array([[x, y, LOC_DEPTH + 1.5]]), prm, with_holes=False)[0] > 0:
+            probs.append("locator: < 1.5 mm over the pocket")
     return probs
 
 
-# --- meshing -------------------------------------------------------------------------------------------
-def mesh(prm, voxel=0.3, texture=False):
-    W, H, Pz = prm["W"], prm["H"], prm["P"]
-    lo = np.array([-W / 2 - 2, -H / 2 - 2, -voxel * 1.5])   # z grid straddles 0 -> exact flat face
-    hi = np.array([W / 2 + 2, H / 2 + 2, Pz + 2])
+def good_seeds(style, bolts, n, start=0):
+    out, s = [], start
+    while len(out) < n and s < start + 200:
+        if not check(make_params(style, bolts, s)):
+            out.append(s)
+        s += 1
+    return out
+
+
+# --- meshing ------------------------------------------------------------------------------------------------
+def mesh(prm, voxel=0.25):
+    W, L, Pz = prm["W"], prm["L"], prm["P"]
+    lo = np.array([-W / 2 - 6, -L / 2 - 4, -voxel * 1.5])
+    hi = np.array([W / 2 + 6, L / 2 + 4, Pz + 4])
     axes = [np.arange(lo[i], hi[i] + voxel, voxel) for i in range(3)]
     G = np.stack(np.meshgrid(*axes, indexing="ij"), -1)
-    vol = shape_sdf(G, prm, texture=texture)
-    v, f, _, _ = marching_cubes(vol, 0.0, spacing=(voxel,) * 3)
+    v, f, _, _ = marching_cubes(shape_sdf(G, prm), 0.0, spacing=(voxel,) * 3)
     m = trimesh.Trimesh(v + lo, f[:, ::-1], process=True)
-    m = max(m.split(only_watertight=False), key=lambda p: len(p.faces))   # drop stray 1-2 triangle slivers
+    m = max(m.split(only_watertight=False), key=lambda p: len(p.faces))
     m.fix_normals()
     return m
 
 
-def good_seeds(kind, n, start=0):
-    """The first n seeds from `start` whose grips pass every check."""
-    out, s = [], start
-    while len(out) < n:
-        if not check(make_params(kind, s)):
-            out.append(s)
-        s += 1
-    return out
+def tag(prm):
+    return f"{prm['style']}-{prm['bolts']}b_s{prm['seed']:02d}"
 
 
 def parse_seeds(s):
@@ -262,24 +230,23 @@ def parse_seeds(s):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("kind", choices=BOUNDS)
-    ap.add_argument("--seeds", default="0-11")
+    ap.add_argument("style", choices=STYLES)
+    ap.add_argument("--bolts", type=int, choices=(1, 2), default=2)
+    ap.add_argument("--seeds", default="0-3")
     ap.add_argument("--good", type=int, help="instead of --seeds: the first N seeds that pass all checks")
-    ap.add_argument("--voxel", type=float, default=0.3)
-    ap.add_argument("--texture", action="store_true", help="add fine grain (use --voxel 0.15)")
+    ap.add_argument("--voxel", type=float, default=0.25)
     ap.add_argument("--out", default="out")
     a = ap.parse_args()
     out = pathlib.Path(a.out)
     out.mkdir(exist_ok=True)
-    for s in (good_seeds(a.kind, a.good) if a.good else parse_seeds(a.seeds)):
-        prm = make_params(a.kind, s)
+    seeds = good_seeds(a.style, a.bolts, a.good) if a.good else parse_seeds(a.seeds)
+    for s in seeds:
+        prm = make_params(a.style, a.bolts, s)
         probs = check(prm)
-        m = mesh(prm, a.voxel, a.texture)
-        tag = f"{a.kind}_s{s:02d}" + ("_tex" if a.texture else "")
-        m.export(out / f"{tag}.stl")
-        prm["checks"] = probs or ["ok"]
-        prm["volume_cm3"] = round(m.volume / 1000, 2)
-        prm["watertight"] = bool(m.is_watertight)
-        json.dump(prm, open(out / f"{tag}.json", "w"), indent=1)
-        print(f"{tag}: {m.bounds[1] - m.bounds[0]} mm, {len(m.faces)} faces, "
-              f"watertight={m.is_watertight}, {'; '.join(probs) or 'checks ok'}")
+        m = mesh(prm, a.voxel)
+        m.export(out / f"{tag(prm)}.stl")
+        ext = m.bounds[1] - m.bounds[0]
+        prm.update(checks=probs or ["ok"], size_mm=[round(float(e), 1) for e in ext],
+                   volume_cm3=round(m.volume / 1000, 2), watertight=bool(m.is_watertight))
+        json.dump(prm, open(out / f"{tag(prm)}.json", "w"), indent=1)
+        print(f"{tag(prm)}: {np.round(ext, 1)} mm, watertight={m.is_watertight}, {'; '.join(probs) or 'ok'}")
