@@ -6,25 +6,33 @@ Output: watertight STL in **millimetres** (set Unit Type = Millimeter when inser
 ![front](front_sheet.png)
 ![rear](rear_sheet.png)
 
-## Styles
+## Styles (sized for the slimmer body)
 
-| Style | Shape | Footprint W × H | Height |
+| Style | Shape | Finished size W × H × depth | Screw |
 | --- | --- | --- | --- |
-| `front-crimp` | Rounded square edge on the lens side, top leans over it, face slopes back | 18–24 × 44–54 mm | ~10–14 mm |
-| `front-pinch` | Narrow fin with two rounded flanks | 14–18 × 44–54 mm | 11–15 mm |
-| `rear-crimp` | Small thumb edge on the EVF side | 16–21 × 31–35 mm | ~7–8 mm |
-| `rear-sloper` | Smooth dome with a shallow thumb dish | 18–23 × 31–35 mm | 7–9 mm |
+| `front-crimp` | Rounded square edge on the lens side, top leans over it, flatter face behind | ~14–18 × 44–54 × 6 mm | M2.5 |
+| `front-pinch` | Narrow fin with two rounded flanks | ~12–14 × 44–54 × 6–7 mm | M2.5 |
+| `rear-crimp` | Small thumb edge on the EVF side | ~11–14 × 18–22 × 4.5 mm | M2 |
+| `rear-sloper` | Low dome with a shallow thumb dish | ~12–14 × 18–22 × 4.5 mm | M2 |
 
 Each comes as **2-bolt** or **1-bolt**.
 
-## Standard hole pattern (the same on every grip position)
+## Standard hole patterns (three tapped holes in a vertical line)
 
-Three M2.5 tapped holes in the body, in a vertical line at **y = −10, 0, +10 mm (10 mm pitch)**. Any grip fits any position.
+| | Front | Rear |
+| --- | --- | --- |
+| Body holes | M2.5 at y = −10, 0, +10 mm | M2 at y = −5, 0, +5 mm |
+| 2-bolt grip | SHCS at ±10 (20 mm spacing) | SHCS at ±5 (10 mm spacing) |
+| 1-bolt grip | SHCS at 0 + M2.5 × 4 set screw, 2.5 mm proud, at +10 | SHCS at 0 + M2 × 3 set screw, 2 mm proud, at +5 |
+| Clearance hole / counterbore | Ø2.8 / Ø4.9 (head Ø4.5) | Ø2.4 / Ø4.1 (head Ø3.8) |
+| Material under head (seat) | 1.8 mm | 1.2 mm |
+| Screw, ~4 mm thread engagement | M2.5 × 6 | M2 × 5 |
+| Locator pocket | Ø2.9 × 2.8 mm | Ø2.4 × 2.3 mm |
 
-- **2-bolt:** M2.5 SHCS at ±10 mm (20 mm spacing).
-- **1-bolt:** M2.5 SHCS in the centre hole. Against rotation, an **M2.5 × 4 set screw** stands 2.5 mm proud in the +10 hole and sits in a Ø3.0 × 3.2 mm pocket in the grip. No pressed dowel needed.
-- Grip holes: Ø3.0 clearance, Ø5.2 counterbore (MJF allowance).
-- Screws: front M2.5×8, rear M2.5×6 or ×8, assuming ~4 mm of thread in the body.
+The holes are close fits that allow for MJF printing ~0.1 mm small. Every grip is checked for:
+- head ≥ 0.3 mm below the surface;
+- side wall around the counterbore ≥ 1.5 mm (front) or 1.2 mm (rear);
+- ≥ 1.2 mm of material over the locator pocket.
 
 ## Use
 
@@ -47,11 +55,9 @@ Each grip is one continuous swept form, described as a signed distance field (ne
    - **crimp:** squarer on the edge side, softer on the back, sheared so the top overhangs the edge;
    - **pinch:** a tall rounded section with a slight waist;
    - **sloper:** a low dome with a dish cut in.
-4. **Fasteners:** soft bosses blend in under each fastener. The mating face is cut flat at z = 0, and the holes are cut last, exactly.
+4. **Fasteners:** no bosses (they showed as bumps on thin grips). Each grip is shifted so its thickest part sits over the hole line, and seeds too thin to carry the screws are rejected. The mating face is cut flat at z = 0, and the holes are cut last, exactly.
 5. **Checks on every seed:**
-   - ≥ 2.5 mm wall around each counterbore;
-   - the screw head ≥ 0.3 mm below the surface;
-   - ≥ 1.5 mm of material over the locator pocket.
+   - see the limits under the hole patterns above.
 6. **Mesh:** marching cubes on a 0.25 mm grid, keeping the largest piece.
 
 Nothing random is added to the surface, so curvature stays continuous. `gripgen_v1.py` is the earlier lumpy, blob-based generator.

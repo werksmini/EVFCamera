@@ -9,11 +9,12 @@ Nothing random is added on the surface, so curvature stays continuous.
 Signed distance field (SDF): negative inside, positive outside. Fastener bosses are blended in,
 the mating face is cut flat at z = 0, holes are cut last and exactly. Marching cubes -> STL (mm).
 
-Standard hole pattern on the camera body (same for every grip, front and rear):
-  three M2.5 tapped holes in a vertical line at y = -10, 0, +10 mm (10 mm pitch).
-  2-bolt grips: M2.5 SHCS at y = +/-10 (20 mm spacing).
-  1-bolt grips: M2.5 SHCS at y = 0, located against rotation by an M2.5 x 4 set screw
-                left standing 2.5 mm proud in the y = +10 hole (grip has a blind pocket over it).
+Standard hole patterns on the camera body (three tapped holes in a vertical line):
+  front: M2.5 at y = -10, 0, +10 mm (10 mm pitch)
+  rear:  M2   at y = -5, 0, +5 mm  (5 mm pitch)
+  2-bolt grips: SHCS in the outer two holes.
+  1-bolt grips: SHCS in the centre hole, located against rotation by a set screw standing
+                proud in the upper hole (M2.5 x 4 / M2 x 3); the grip has a blind pocket over it.
 
 Grip coordinates (mm), looking at the face the grip bolts to:
   x across the camera, -x = lens side (front) / EVF side (rear); y up; z out of the body.
@@ -30,42 +31,52 @@ import numpy as np
 import trimesh
 from skimage.measure import marching_cubes
 
-# --- fasteners (ISO 4762 M2.5 SHCS; MJF holes slightly oversize) -------------------------------------
-PITCH = 10.0             # standard hole pitch on the body
-M25_CLEAR = 3.0          # clearance hole dia (2.9 nominal + MJF allowance)
-M25_CB = 5.2             # counterbore dia (head 4.5)
-M25_HEAD = 2.5           # head height
-LOC_HOLE = 3.0           # blind pocket over the locating set screw (M2.5, 2.5 mm proud)
-LOC_DEPTH = 3.2
-WALL = 2.5               # minimum material around a counterbore
+# --- fasteners (ISO 4762 SHCS). MJF holes print ~0.1 mm small, so these are close-fit + a little ----------
+@dataclass
+class Screw:
+    name: str
+    clear: float      # clearance hole dia
+    cb: float         # counterbore dia
+    head: float       # head height
+    pitch: float      # standard hole pitch on the body
+    loc_hole: float   # blind pocket over the locating set screw
+    loc_depth: float  # set screw stands (loc_depth - 0.3) mm proud of the body
+    wall: float       # minimum material around the counterbore
+
+
+# front: M2.5 (head 4.5 x 2.5); body holes at y = -10, 0, +10
+M25 = Screw("M2.5", clear=2.8, cb=4.9, head=2.5, pitch=10.0, loc_hole=2.9, loc_depth=2.8, wall=1.5)
+# rear: M2 (head 3.8 x 2.0); body holes at y = -5, 0, +5
+M2 = Screw("M2", clear=2.4, cb=4.1, head=2.0, pitch=5.0, loc_hole=2.4, loc_depth=2.3, wall=1.2)
 RECESS = 0.3             # head sits at least this far below the surface
 
 
-def pattern(bolts):
+def pattern(bolts, sc):
     """(screws, locators) as (x, y) in grip coordinates."""
     if bolts == 2:
-        return [(0.0, -PITCH), (0.0, PITCH)], []
-    return [(0.0, 0.0)], [(0.0, PITCH)]
+        return [(0.0, -sc.pitch), (0.0, sc.pitch)], []
+    return [(0.0, 0.0)], [(0.0, sc.pitch)]
 
 
 @dataclass
 class Style:
     w: tuple        # footprint width range (x), mm
     h: tuple        # footprint height range (y), mm
-    p: tuple        # protrusion range (z), mm
+    p: tuple        # protrusion parameter range (z), mm; crimps finish ~80 % of this
     seat: float     # material under the screw head
     profile: str    # crimp | pinch | sloper
+    screw: Screw
 
 
 STYLES = {
     # fingers curl over a rounded positive edge on the lens side; the face slopes back toward the body end
-    "front-crimp": Style(w=(18, 24), h=(44, 54), p=(11, 15), seat=3.0, profile="crimp"),
-    # a narrow, taller fin with two pinchable flanks
-    "front-pinch": Style(w=(14, 18), h=(44, 54), p=(12, 15), seat=3.0, profile="pinch"),
+    "front-crimp": Style(w=(13.5, 18), h=(44, 54), p=(6.3, 8), seat=1.8, profile="crimp", screw=M25),
+    # a narrow fin with two pinchable flanks
+    "front-pinch": Style(w=(10.5, 13.5), h=(44, 54), p=(6, 7.5), seat=1.8, profile="pinch", screw=M25),
     # thumb edge: a small crimp the thumb pad hooks over
-    "rear-crimp": Style(w=(16, 21), h=(31, 35), p=(8.3, 10), seat=2.5, profile="crimp"),
-    # thumb sloper: a smooth dome with a shallow dish for the thumb pad
-    "rear-sloper": Style(w=(18, 23), h=(31, 35), p=(7, 9), seat=2.5, profile="sloper"),
+    "rear-crimp": Style(w=(10, 13), h=(18, 22), p=(5.0, 6.0), seat=1.2, profile="crimp", screw=M2),
+    # thumb sloper: a low dome with a shallow dish for the thumb pad
+    "rear-sloper": Style(w=(11, 14), h=(18, 22), p=(4.4, 5.3), seat=1.2, profile="sloper", screw=M2),
 }
 
 COLOURS = ["#ffd400", "#ff6a00", "#00b8a9", "#ff2e88", "#7cdf00", "#2f7bff", "#9d4dff", "#ff3b30"]
@@ -104,19 +115,20 @@ def make_params(style, bolts, seed):
     u = lambda lo, hi: float(rng.uniform(lo, hi))
     prm = dict(style=style, bolts=bolts, seed=seed, profile=S.profile, colour=COLOURS[seed % len(COLOURS)],
                W=u(*S.w), L=u(*S.h), P=u(*S.p),
-               bow=u(-0.07, 0.07), sbend=u(-0.04, 0.04),       # spine curvature, fraction of length
+               bow=u(-0.04, 0.04), sbend=u(-0.025, 0.025),       # spine curvature, fraction of length
                yoff=u(-0.04, 0.04),                            # spine centre offset along y, fraction
                env_n=u(2.2, 3.2),                              # end shape: 2 = elliptical, higher = squarer
                wtaper=u(-0.25, 0.25), htaper=u(-0.2, 0.2),    # one end wider / taller (bean shape)
                n=u(2.2, 2.8), cb=u(0.3, 0.5))                  # section squareness, how deep the dome sinks
     if S.profile == "crimp":
         # edge side (-x) squarer than the back, top leans over the edge, face slopes down to the back
-        prm.update(tilt=u(0.3, 0.5), n_edge=u(3.4, 4.6), lean=u(0.12, 0.24), lip=None)
+        prm.update(tilt=u(0.15, 0.3), n_edge=u(3.4, 4.6), lean=u(0.12, 0.24), lip=None,
+                   hole_a=u(-0.3, -0.18))                     # hole line sits this far toward the edge
     elif S.profile == "pinch":
         prm.update(tilt=u(-0.08, 0.08), lip=None, waist=u(0.0, 0.12))
     else:
         prm.update(tilt=u(0.05, 0.18), lip=None,
-                   dish=dict(x=u(0.0, 0.12), y=u(-0.06, 0.06), r=u(10, 13), depth=u(1.2, 2.0)))
+                   dish=dict(x=u(0.0, 0.12), y=u(-0.06, 0.06), r=u(0.5, 0.65) * prm["W"], depth=u(0.08, 0.14) * prm["P"]))
     return prm
 
 
@@ -126,7 +138,13 @@ def shape_sdf(P, prm, with_holes=True):
     x, y, z = P[..., 0], P[..., 1], P[..., 2]
     yc = y - prm["yoff"] * L
     uu = 2 * yc / L                                              # -1 .. 1 along the spine
-    sx = L * (prm["bow"] * (1 - uu ** 2) + prm["sbend"] * np.sin(np.pi * uu / 2))
+    spine = lambda q: L * (prm["bow"] * (1 - q ** 2) + prm["sbend"] * np.sin(np.pi * q / 2))
+    sc = S.screw
+    hy = np.array([p[1] for p in sum(pattern(prm["bolts"], sc), [])])
+    x_fix = spine(2 * (hy - prm["yoff"] * L) / L).mean()       # keep the spine centred on the hole line
+    if prm["profile"] == "crimp":
+        x_fix += prm["hole_a"] * W / 2                             # ...or, for crimps, the thick ridge on it
+    sx = spine(uu) - x_fix
     slope = (prm["bow"] * (-2 * uu) + prm["sbend"] * np.pi / 2 * np.cos(np.pi * uu / 2)) * 2
     s = (x - sx) / np.sqrt(1 + slope ** 2)
     env = np.clip(1 - np.abs(uu) ** prm["env_n"], 1e-4, 1) ** (1 / prm["env_n"])
@@ -136,7 +154,7 @@ def shape_sdf(P, prm, with_holes=True):
     # cross-section in normalised (a, b): dome sinks cb below the face, top at b = 1
     cb, n = prm["cb"], prm["n"]
     if prm["profile"] == "crimp":
-        a = a + prm["lean"] * np.clip(b, 0, None) ** 2             # top overhangs the edge side: positive hold
+        a = a + prm["lean"] * np.clip(b, 0, 1.5) ** 2             # top overhangs the edge side: positive hold
         n = n + (prm["n_edge"] - n) / (1 + np.exp(np.clip(a / 0.2, -50, 50)))       # squarer toward the edge, smooth blend
         b = b * (1 + prm["tilt"])                                  # keep the peak at the protrusion P
     b2 = b + prm["tilt"] * a
@@ -149,47 +167,45 @@ def shape_sdf(P, prm, with_holes=True):
         D = prm["dish"]
         c = [D["x"] * W, D["y"] * L, Pz + D["r"] - D["depth"]]
         d = smax(d, -ellipsoid(P, c, [D["r"], D["r"] * 1.2, D["r"]]), 2.0)
-    screws, locs = pattern(prm["bolts"])
-    for (hx, hy) in screws:
-        rb = M25_CB / 2 + WALL + 0.6
-        d = smin(d, ellipsoid(P, [hx, hy, 0], [rb, rb, S.seat + M25_HEAD + RECESS + 0.4]), 4.0)
-    for (hx, hy) in locs:
-        d = smin(d, ellipsoid(P, [hx, hy, 0], [3.5, 3.5, LOC_DEPTH + 1.8]), 4.0)
+    screws, locs = pattern(prm["bolts"], sc)
+    # no bosses: the form itself must carry the fasteners (check() rejects seeds that are too thin),
+    # which keeps the surface one continuous shape
     d = np.maximum(d, -z)                                         # flat mating face
     if with_holes:
         for (hx, hy) in screws:
-            d = np.maximum(d, -cylinder_z(P, hx, hy, M25_CLEAR / 2, -1, 99))
-            d = np.maximum(d, -cylinder_z(P, hx, hy, M25_CB / 2, S.seat, 99))
+            d = np.maximum(d, -cylinder_z(P, hx, hy, sc.clear / 2, -1, 99))
+            d = np.maximum(d, -cylinder_z(P, hx, hy, sc.cb / 2, S.seat, 99))
         for (hx, hy) in locs:
-            d = np.maximum(d, -cylinder_z(P, hx, hy, LOC_HOLE / 2, -1, LOC_DEPTH))
+            d = np.maximum(d, -cylinder_z(P, hx, hy, sc.loc_hole / 2, -1, sc.loc_depth))
     return d
 
 
 # --- checks ------------------------------------------------------------------------------------------------
 def check(prm):
     S = STYLES[prm["style"]]
-    screws, locs = pattern(prm["bolts"])
+    sc = S.screw
+    screws, locs = pattern(prm["bolts"], sc)
     probs = []
     ang = np.linspace(0, 2 * np.pi, 48, endpoint=False)
     for i, (x, y) in enumerate(screws):
-        r = M25_CB / 2 + WALL
+        r = sc.cb / 2 + sc.wall
         for zz in np.linspace(0.3, S.seat + 0.5, 4):
             ring = np.stack([x + r * np.cos(ang), y + r * np.sin(ang), np.full_like(ang, zz)], -1)
             if (shape_sdf(ring, prm, with_holes=False) > 0).any():
-                probs.append(f"screw {i + 1}: wall < {WALL} mm")
+                probs.append(f"screw {i + 1}: wall < {sc.wall} mm")
                 break
         col_z = np.linspace(0, 30, 601)
         for t in np.linspace(0, 2 * np.pi, 12, endpoint=False):
-            col = np.stack([np.full_like(col_z, x + M25_CB / 2 * np.cos(t)),
-                            np.full_like(col_z, y + M25_CB / 2 * np.sin(t)), col_z], -1)
+            col = np.stack([np.full_like(col_z, x + sc.cb / 2 * np.cos(t)),
+                            np.full_like(col_z, y + sc.cb / 2 * np.sin(t)), col_z], -1)
             inside = shape_sdf(col, prm, with_holes=False) < 0
             top = col_z[inside].max() if inside.any() else 0
-            if top < S.seat + M25_HEAD + RECESS:
+            if top < S.seat + sc.head + RECESS:
                 probs.append(f"screw {i + 1}: head proud")
                 break
     for (x, y) in locs:
-        if shape_sdf(np.array([[x, y, LOC_DEPTH + 1.5]]), prm, with_holes=False)[0] > 0:
-            probs.append("locator: < 1.5 mm over the pocket")
+        if shape_sdf(np.array([[x, y, sc.loc_depth + 1.2]]), prm, with_holes=False)[0] > 0:
+            probs.append("locator: < 1.2 mm over the pocket")
     return probs
 
 

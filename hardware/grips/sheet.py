@@ -76,7 +76,9 @@ if __name__ == "__main__":
                                  color="w", fontsize=8, loc="left")
                 if ri == len(rows) - 1:
                     ax.text(0.5, -0.03, name, color="#888", fontsize=7, ha="center", va="top", transform=ax.transAxes)
-    fig.suptitle(f"{a.side} grips v2 — rows: style, bolts (2 = M2.5 at ±10 mm; 1 = M2.5 at 0 + locator at +10)",
+    sc = g.STYLES[rows[0][0]].screw
+    fig.suptitle(f"{a.side} grips — rows: style, bolts (2 = {sc.name} at ±{sc.pitch:g} mm; "
+                 f"1 = {sc.name} at 0 + set-screw locator at +{sc.pitch:g})",
                  color="w", fontsize=10)
     fig.tight_layout()
     fig.savefig(a.out, dpi=110, facecolor=BG)
