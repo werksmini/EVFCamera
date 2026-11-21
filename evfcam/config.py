@@ -23,7 +23,7 @@ class Config:
         6: "DOWN",          # pin 31
         13: "LEFT",         # pin 33
         19: "RIGHT",        # pin 35
-        26: "OK",           # pin 37  D-pad press
+        16: "OK",           # pin 36  D-pad press (GPIO 26 has no pad on the Perma-Proto Bonnet Mini)
         22: "BACK",         # pin 15
         23: "PLAY",         # pin 16
         21: "FN",           # pin 40
