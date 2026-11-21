@@ -27,8 +27,7 @@ class Config:
         22: "BACK",         # pin 15
         23: "PLAY",         # pin 16
         21: "FN",           # pin 40
-        17: "SHUTTER_HALF",  # pin 11
-        27: "SHUTTER_FULL",  # pin 13
+        27: "SHUTTER_FULL",  # pin 13  single-stage shutter for now (half-press on GPIO 17 later)
         24: "DIAL_DOWN",    # pin 18  thumb jog left (SparkFun 08184)
         25: "DIAL_UP",      # pin 22  thumb jog right
         18: "MENU",         # pin 12  thumb jog press
