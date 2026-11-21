@@ -112,10 +112,14 @@ class Inputs:
         if ok:
             self.sources.append("GPIO " + " ".join(ok))
 
-    def close(self):
-        self._stop.set()
+    def restore_terminal(self):
         if self._term_state is not None:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self._term_state)
+            self._term_state = None
+
+    def close(self):
+        self._stop.set()
+        self.restore_terminal()
         for dev in self._devices:
             try:
                 dev.ungrab()
