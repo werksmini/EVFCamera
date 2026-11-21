@@ -1,6 +1,6 @@
 """Fixed settings for the hardware. Everything the user can change lives in settings.py."""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -16,7 +16,23 @@ class Config:
     preview_size: tuple = (1280, 960)     # camera stream for the preview
     sensor_mode: tuple = (2028, 1520)     # full sensor, binned: preview framing = photo framing
     photos_dir: str = os.path.expanduser("~/evfpi/photos")
-    shutter_gpio: int = 27                # header pin 13; other leg to GND (pin 14)
+    # Physical buttons: BCM GPIO -> action name (evfcam.actions.A). Each switch closes to ground;
+    # the Pi's internal pull-ups are used, so no resistors. Header pin in the comment.
+    buttons: dict = field(default_factory=lambda: {
+        5: "UP",            # pin 29  D-pad (Adafruit 504)
+        6: "DOWN",          # pin 31
+        13: "LEFT",         # pin 33
+        19: "RIGHT",        # pin 35
+        26: "OK",           # pin 37  D-pad press
+        22: "BACK",         # pin 15
+        23: "PLAY",         # pin 16
+        21: "FN",           # pin 40
+        17: "SHUTTER_HALF",  # pin 11
+        27: "SHUTTER_FULL",  # pin 13
+        24: "DIAL_DOWN",    # pin 18  thumb jog left (SparkFun 08184)
+        25: "DIAL_UP",      # pin 22  thumb jog right
+        18: "MENU",         # pin 12  thumb jog press
+    })
 
     zoom_levels: tuple = (5, 10)          # Magnify mode steps
     in_focus: float = 0.95                # focus square goes green within 95% of peak sharpness

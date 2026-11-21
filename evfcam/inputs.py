@@ -3,7 +3,7 @@
 Three sources, all optional, all feeding the same queue:
   - the SSH terminal you start the app from
   - any keyboard plugged into the Pi (and later the gpio-key / rotary-encoder controls)
-  - the bench shutter button on a GPIO pin
+  - physical buttons on GPIO pins (each closes to ground)
 """
 import os
 import queue
@@ -17,13 +17,13 @@ from .actions import A, EVDEV_KEYS, TERMINAL_KEYS
 
 
 class Inputs:
-    def __init__(self, q: queue.Queue, shutter_gpio=None):
+    def __init__(self, q: queue.Queue, buttons=None):
         self.q = q
-        self.shutter_gpio = shutter_gpio
+        self.button_map = dict(buttons or {})
         self._term_state = None
         self._stop = threading.Event()
         self._devices = []
-        self._button = None
+        self._buttons = []
         self.sources = []
 
     def start(self):
@@ -91,17 +91,26 @@ class Inputs:
         except OSError:
             pass                           # device unplugged
 
-    # --- bench shutter button ---------------------------------------------------------
+    # --- physical buttons on GPIO -------------------------------------------------------
     def _start_gpio(self):
-        if self.shutter_gpio is None:
+        if not self.button_map:
             return
         try:
             from gpiozero import Button
-            self._button = Button(self.shutter_gpio, pull_up=True, bounce_time=0.05)
-            self._button.when_pressed = lambda: self.q.put(A.SHUTTER_FULL)
-            self.sources.append(f"GPIO {self.shutter_gpio} shutter")
-        except Exception as e:             # not on a Pi, or pin busy
-            print(f"shutter button not available: {e}")
+        except Exception as e:             # not on a Pi
+            print(f"GPIO buttons not available: {e}")
+            return
+        ok = []
+        for pin, name in self.button_map.items():
+            try:
+                b = Button(pin, pull_up=True, bounce_time=0.03)
+                b.when_pressed = (lambda a=A[name]: self.q.put(a))
+                self._buttons.append(b)
+                ok.append(f"{pin}={name}")
+            except Exception as e:         # pin busy (e.g. used by an overlay)
+                print(f"GPIO {pin} ({name}) not available: {e}")
+        if ok:
+            self.sources.append("GPIO " + " ".join(ok))
 
     def close(self):
         self._stop.set()
@@ -112,8 +121,8 @@ class Inputs:
                 dev.ungrab()
             except OSError:
                 pass
-        if self._button:
-            self._button.close()
+        for b in self._buttons:
+            b.close()
 
 
 def split_keys(data: str):

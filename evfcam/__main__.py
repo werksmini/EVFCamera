@@ -27,7 +27,7 @@ def main():
         cam = Camera(cfg)
 
     q = queue.Queue()
-    inputs = Inputs(q, shutter_gpio=None if args.fake else cfg.shutter_gpio).start()
+    inputs = Inputs(q, buttons=None if args.fake else cfg.buttons).start()
     print("EVFCamera running. Controls from:", ", ".join(inputs.sources) or "none")
     print(HELP)
     app = App(cfg, cam, q)
