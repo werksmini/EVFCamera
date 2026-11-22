@@ -47,5 +47,5 @@ EVDEV_KEYS = {
     "KEY_Q": A.QUIT,
 }
 
-HELP = ("arrows = pad   Enter = OK   space = shutter   h = half-press   m = Menu   "
-        "p = Play   b/Backspace = Back   [ ] = thumb wheel   f = Fn   q = quit")
+HELP = ("arrows = pad (up/down = EV)   Enter = OK   space = shutter   h = half-press   m = Menu   "
+        "p = Play   b/Backspace = Back   [ ] = thumb wheel   f = Fn (magnify)   q = quit")

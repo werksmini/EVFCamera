@@ -152,7 +152,7 @@ class UI:
                              (self.W - m, self.H - self.bar_h - m, -1, -1)):
             d.line([(x, y), (x + sx * L, y)], fill=WHITE, width=3)
             d.line([(x, y), (x, y + sy * L)], fill=WHITE, width=3)
-        self._bottom_bar(d, md, f"MAGNIFY {zoom}x    OK = next    Back = exit", focus)
+        self._bottom_bar(d, md, f"MAGNIFY {zoom}x    Up/Down = zoom    Shutter or Fn = exit", focus)
         return img
 
     def menu(self, title, rows, cursor, hint):

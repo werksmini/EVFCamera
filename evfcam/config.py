@@ -17,20 +17,19 @@ class Config:
     sensor_mode: tuple = (2028, 1520)     # full sensor, binned: preview framing = photo framing
     photos_dir: str = os.path.expanduser("~/evfpi/photos")
     # Physical buttons: BCM GPIO -> action name (evfcam.actions.A). Each switch closes to ground;
-    # the Pi's internal pull-ups are used, so no resistors. Header pin in the comment.
+    # the Pi's internal pull-ups are used, so no resistors. MVP milled board: every button is on
+    # the header's outer row (even pins), so the single-sided board breaks them all out on one side.
+    # Left to right along the header (pin 1 at the SD-card end).
     buttons: dict = field(default_factory=lambda: {
-        5: "UP",            # pin 29  D-pad (Adafruit 504)
-        6: "DOWN",          # pin 31
-        13: "LEFT",         # pin 33
-        19: "RIGHT",        # pin 35
-        16: "OK",           # pin 36  D-pad press (GPIO 26 has no pad on the Perma-Proto Bonnet Mini)
-        22: "BACK",         # pin 15
-        23: "PLAY",         # pin 16
-        21: "FN",           # pin 40
-        27: "SHUTTER_FULL",  # pin 13  single-stage shutter for now (half-press on GPIO 17 later)
-        24: "DIAL_DOWN",    # pin 18  thumb jog left (SparkFun 08184)
-        25: "DIAL_UP",      # pin 22  thumb jog right
-        18: "MENU",         # pin 12  thumb jog press
+        18: "FN",           # pin 12  upper left; does what Setup > Fn button says (default Magnify)
+        23: "MENU",         # pin 16
+        24: "PLAY",         # pin 18  also Back inside the menu
+        25: "UP",           # pin 22  D-pad (Adafruit 504)
+        8: "LEFT",          # pin 24  (SPI CE0: keep SPI off)
+        7: "DOWN",          # pin 26  (SPI CE1)
+        12: "RIGHT",        # pin 32
+        16: "OK",           # pin 36  D-pad press: magnify
+        21: "SHUTTER_FULL",  # pin 40  right of the D-pad; single-stage for now
     })
 
     zoom_levels: tuple = (5, 10)          # Magnify mode steps

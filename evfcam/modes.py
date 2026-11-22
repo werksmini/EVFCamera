@@ -1,7 +1,8 @@
 """The camera's modes. Each mode decides what every action does and what the overlay shows.
 
-    Shoot     live view; shutter takes a photo; thumb wheel = EV (Auto) or shutter (S, M)
-    Magnify   5x / 10x centre crop for focusing
+    Shoot     live view; shutter takes a photo; D-pad up/down = EV (Auto, Shutter) or ISO (Manual);
+              Fn = the Setup > Fn button choice (default Magnify); thumb wheel = EV or shutter speed
+    Magnify   5x / 10x centre crop for focusing; up/down zoom; shutter or Fn returns to the live view
     Menu      settings pages
     Playback  review photos
 """
@@ -58,11 +59,29 @@ class Shoot(Mode):
                 app.change("ev", d)                     # shown in the top bar
             else:
                 app.change("shutter_us", -d)            # wheel right = faster
-        elif a in (A.UP, A.DOWN) and st.exp_mode == "Manual":
-            app.change("iso", 1 if a == A.UP else -1)
+        elif a in (A.UP, A.DOWN):
+            d = 1 if a == A.UP else -1
+            if st.exp_mode == "Manual":
+                app.change("iso", d)                    # no auto exposure to compensate
+            else:
+                app.change("ev", d)                     # EV comp, 1/3 stop per press
+        elif a == A.FN:
+            return self.fn()
         elif a == A.BACK and st.ev and st.exp_mode != "Manual":
             st.ev = 0.0
             app.settings_changed("ev")
+        return None
+
+    def fn(self):
+        app, st = self.app, self.app.settings
+        if st.fn == "Magnify":
+            return "magnify"
+        if st.fn == "Playback":
+            return "playback"
+        if st.fn == "Black and white":
+            app.change("mono", 0, wrap=True)
+        elif st.fn == "Aspect ratio":
+            app.change("aspect", 0, wrap=True)
         return None
 
     def render(self, md):
@@ -84,16 +103,19 @@ class Magnify(Mode):
         return self.app.cfg.zoom_levels[self.step]
 
     def on(self, a):
-        if a == A.OK:
+        levels = self.app.cfg.zoom_levels
+        if a in (A.OK, A.UP):
+            if self.step + 1 >= len(levels):
+                return "shoot" if a == A.OK else None   # OK cycles round; Up stops at the top
             self.step += 1
-            if self.step >= len(self.app.cfg.zoom_levels):
-                return "shoot"
             self.app.cam.set_zoom(self.zoom)
-        elif a in (A.BACK, A.MENU, A.SHUTTER_HALF):
-            return "shoot"
-        elif a == A.SHUTTER_FULL:
-            self.app.take_photo()                   # capture resets the crop to the full frame
-            return "shoot"
+        elif a == A.DOWN:
+            if self.step == 0:
+                return "shoot"                      # zoomed all the way out
+            self.step -= 1
+            self.app.cam.set_zoom(self.zoom)
+        elif a in (A.BACK, A.MENU, A.FN, A.SHUTTER_HALF, A.SHUTTER_FULL):
+            return "shoot"                          # shutter returns to the live view; press again to shoot
         elif a == A.PLAY:
             return "playback"
         return None
@@ -130,7 +152,7 @@ class Menu(Mode):
                 self.page_cursor = (self.page_cursor + 1) % n
             elif a in (A.OK, A.RIGHT):
                 self.page, self.item_cursor = menu.PAGES[self.page_cursor], 0
-            elif a in (A.MENU, A.BACK, A.LEFT):
+            elif a in (A.MENU, A.BACK, A.PLAY, A.LEFT):
                 return "shoot"
             return None
 
@@ -146,7 +168,7 @@ class Menu(Mode):
             self.app.change(item.key, 0, wrap=True)
         elif a == A.OK and item.kind == "action":
             self.app.run_action(item.action)
-        elif a == A.BACK:
+        elif a in (A.BACK, A.PLAY):                 # Play doubles as Back (no Back button on the MVP board)
             self.page = None
         elif a == A.MENU:
             return "shoot"

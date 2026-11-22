@@ -103,6 +103,7 @@ PAGES = [
         Item("Info shown", "info", ["Full", "Minimal"]),
     ]),
     Page("Setup", [
+        Item("Fn button", "fn", ["Magnify", "Black and white", "Aspect ratio", "Playback"]),
         Item("Date and time", kind="info", info=lambda app: datetime.now().strftime("%Y-%m-%d %H:%M")),
         Item("Storage", kind="info", info=_free_space),
         Item("Photos", kind="info", info=_photo_count),

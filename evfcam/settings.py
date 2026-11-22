@@ -32,6 +32,8 @@ class Settings:
     focus_square: bool = True
     focus_bar: bool = True
     info: str = "Full"                   # Full | Minimal
+    # Setup
+    fn: str = "Magnify"                  # what the Fn button does in the live view
 
     @classmethod
     def load(cls, path=DEFAULT_PATH):

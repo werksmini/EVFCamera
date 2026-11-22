@@ -201,3 +201,57 @@ if __name__ == "__main__":
             with contextlib.redirect_stdout(io.StringIO()):
                 fn()
             print("ok", name)
+
+
+# --- MVP board controls --------------------------------------------------------------------
+def test_dpad_up_down_is_ev_in_auto_and_iso_in_manual():
+    app = make_app()
+    press(app, A.UP, A.UP)
+    assert app.settings.ev == round(2 / 3, 2)
+    press(app, A.DOWN)
+    assert app.settings.ev == round(1 / 3, 2)
+    app2 = make_app(exp_mode="Manual", iso=200)
+    press(app2, A.UP)
+    assert app2.settings.iso == 400 and app2.settings.ev == 0
+
+
+def test_fn_magnifies_by_default_and_is_configurable():
+    app = make_app()
+    press(app, A.FN)
+    assert app.mode.name == "magnify" and app.cam.zoom == 5
+    press(app, A.FN)
+    assert app.mode.name == "shoot" and app.cam.zoom == 1
+    app2 = make_app(fn="Black and white")
+    press(app2, A.FN)
+    assert app2.mode.name == "shoot" and app2.settings.mono is True
+
+
+def test_magnify_up_down_zoom_and_shutter_returns_without_capture():
+    app = make_app()
+    press(app, A.FN, A.UP)
+    assert app.cam.zoom == 10
+    press(app, A.UP)                               # stays at the top
+    assert app.cam.zoom == 10 and app.mode.name == "magnify"
+    press(app, A.DOWN)
+    assert app.cam.zoom == 5
+    press(app, A.SHUTTER_FULL)                     # back to live view, no photo yet
+    photos = lambda: os.listdir(app.cfg.photos_dir) if os.path.isdir(app.cfg.photos_dir) else []
+    assert app.mode.name == "shoot" and photos() == []
+    press(app, A.SHUTTER_FULL)                     # second press captures
+    assert len(photos()) == 1
+    press(app, A.FN, A.DOWN)                       # down from 5x leaves magnify
+    assert app.mode.name == "shoot"
+
+
+def test_play_is_back_inside_the_menu():
+    app = make_app()
+    open_item(app, "Exposure", "ISO")
+    press(app, A.PLAY)
+    assert app.mode.name == "menu" and app.mode.page is None
+    press(app, A.PLAY)
+    assert app.mode.name == "shoot"
+
+
+def test_button_map_uses_outer_row_pins_only():
+    outer_row_gpios = {14, 15, 18, 23, 24, 25, 8, 7, 12, 16, 20, 21}
+    assert set(config.Config().buttons) <= outer_row_gpios
