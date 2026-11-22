@@ -16,9 +16,12 @@ Needs `numpy scipy scikit-image pillow shapely`.
 ## Board
 
 98.7 x 67 mm on a 70 x 100 blank, notched under the Pi so HDMI and USB stay clear. Copper only on the
-back (EAGLE layer 16). Signal traces 0.8 mm, power (5 V, battery, ground return) 1.2 mm, clearance
-0.4 mm minimum (the closest pair comes out at 0.46 mm), 0.6 mm to edges and holes. Everything is
-routed: no jumper wires.
+back (EAGLE layer 16). Signal traces 0.8 mm, power (5 V, battery, ground return) 1.2 mm. Every trace
+runs at 0, 45 or 90 degrees with no acute corners. The router first finds a layout at 0.4 mm clearance,
+then re-routes each connection at 0.65 mm wherever that fits without a detour: the closest copper on
+the finished board is 0.6 mm (the power switch's own pin pitch), and 0.6 mm to edges and holes.
+Everything is routed: no jumper wires. The gauge's four header pads get fixed, staggered lead-ins so the
+four lanes from under the Pi nest neatly.
 
 Viewed from the component side (camera rear), X right, Y up:
 

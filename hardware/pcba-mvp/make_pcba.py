@@ -32,6 +32,7 @@ PWR_W = 1.2          # 5 V, battery and the ground return
 CLEAR = 0.4          # copper to copper
 EDGE = 0.6           # copper to board edge or a drilled hole
 GRID = 0.1           # router grid
+PREFER_EXTRA = 0.25  # second pass: re-route at 0.65 mm clearance wherever that still fits
 
 # --- board outline: notched under the Pi so its HDMI and USB ports stay clear ------------------------
 OUTLINE = [(0, 0), (68.5, 0), (68.5, -5), (98.71, -5), (98.71, 62), (0, 62)]
@@ -155,13 +156,15 @@ NETS.update({("U2", "VCC"): "+3V3", ("U2", "GND"): "GND", ("U2", "SCL"): "SCL", 
 # What the router has to join with copper: (net, width, terminals). Each terminal is a list of pads that
 # are already joined inside a part; reaching any one of them is enough. Terminals are joined in order.
 ROUTES = [
+    # the bundle under the Pi, innermost lane first, so each one nests outside the last
+    ("+3V3", SIG_W, [["J1.17"], ["XY:65.9,35.05"]]),
+    ("GND", PWR_W, [["J1.9"], ["XY:67.5,32.51"]]),
+    ("SCL", SIG_W, [["J1.5"], ["XY:69.1,29.97"]]),
+    ("SDA", SIG_W, [["J1.3"], ["XY:70.5,27.43"]]),
+    ("GND", PWR_W, [["U2.BGND"], ["U1.GND"]]),
+    ("EN", SIG_W, [["U1.EN"], ["SW6.2"]]),   # before 5V, which must then come in under it
     ("+5V", PWR_W, [["J1.2", "J1.4"], ["U1.5V"]]),
-    ("GND", PWR_W, [["J1.9"], ["U2.GND", "U2.BGND"], ["U1.GND"]]),
     ("VBAT", PWR_W, [["U1.VBAT"], ["U2.BAT"]]),
-    ("EN", SIG_W, [["U1.EN"], ["SW6.2"]]),
-    ("+3V3", SIG_W, [["J1.17"], ["U2.VCC"]]),
-    ("SCL", SIG_W, [["J1.5"], ["U2.SCL"]]),
-    ("SDA", SIG_W, [["J1.3"], ["U2.SDA"]]),
     ("FN", SIG_W, [["SW1.2", "SW1.1"], ["J1.12"]]),
     ("GND", SIG_W, [["SW1.4", "SW1.3"], ["J1.14"]]),
     ("MENU", SIG_W, [["SW2.2", "SW2.1"], ["J1.16"]]),
@@ -182,9 +185,20 @@ ROUTES = [
 ]
 
 
+# Fixed lead-ins into the gauge's header column. The four lanes from under the Pi arrive side by side,
+# so each pad gets a straight stub to the left, staggered (top pad's stub longest). The router only has
+# to reach the stub ends, and the lanes nest instead of cutting across each other's pads.
+STUBS = [("+3V3", SIG_W, "U2.VCC", 65.9), ("GND", PWR_W, "U2.GND", 67.5),
+         ("SCL", SIG_W, "U2.SCL", 69.1), ("SDA", SIG_W, "U2.SDA", 70.5)]
+
+
 def pad(key):
+    if key.startswith("XY:"):                          # a stub end: "XY:x,y"
+        x, y = map(float, key[3:].split(","))
+        return (x, y, 0.8, 0, "round")
     ref, p = key.split(".", 1)
     return PARTS[ref]["pads"][p]
+
 
 
 def net_of(ref, p):
@@ -258,7 +272,12 @@ class Router:
         self.owner[holes] = -1
         inside = board_mask()
         self.edge_dist = ndimage.distance_transform_edt(inside) * GRID
-        self.tracks = []                                   # (net, width, points)
+        self.groups = {}                                   # route index -> (net, width, polylines)
+        for i, (net, w, pk, x) in enumerate(STUBS):
+            x0, y0 = pad(pk)[:2]
+            self.groups[f"stub{i}"] = (net, w, [[(x, y0), (x0, y0)]])
+            self._paint(net, w, [[(x, y0), (x0, y0)]])
+        self.base = self.owner.copy()                      # pads, holes and fixed stubs
 
     def id(self, net):
         return self.nid.setdefault(net, len(self.nid) + 1)
@@ -271,11 +290,51 @@ class Router:
         lim = CLEAR + w / 2 + GRID * 0.75 + extra
         return (dist < lim) | (self.edge_dist < EDGE + w / 2 + GRID * 0.75 + extra), dist
 
-    def route(self, net, w, terminals):
-        """Join the terminals in order; returns the list of polylines or None if one can't be reached."""
-        block, dist = self.forbidden(net, w)
-        strict, _ = self.forbidden(net, w, extra=0.15)
-        cost = 1.0 + 2.5 * np.clip((CLEAR + w / 2 + 0.6 - dist) / 0.6, 0, 1)     # keep off other copper
+    @property
+    def tracks(self):
+        return [(net, w, pts) for k, (net, w, lines) in sorted(self.groups.items(), key=lambda kv: str(kv[0]))
+                for pts in lines]
+
+    def _paint(self, net, w, lines):
+        for pts in lines:
+            m = mask_draw(lambda d: draw_track(d, pts, w))
+            self.owner[m & (self.owner == 0)] = self.id(net)
+
+    def rebuild(self):
+        self.owner = self.base.copy()
+        for k, (net, w, lines) in self.groups.items():
+            if not str(k).startswith("stub"):
+                self._paint(net, w, lines)
+
+    def route(self, k, extra=0.0):
+        """Route ROUTES[k]; returns the polylines or None if a terminal can't be reached."""
+        net, w, terminals = ROUTES[k]
+        lines = self._route(net, w, terminals, extra)
+        if lines is not None:
+            self.groups[k] = (net, w, lines)
+            self._paint(net, w, lines)
+        return lines
+
+    def loosen(self):
+        """Second pass: re-route each connection on its own with roomier clearance, keeping the
+        new route only if it still fits. Wider gaps are easier and safer to isolation-mill."""
+        better = 0
+        for k in [k for k in self.groups if not str(k).startswith("stub")]:
+            old = self.groups.pop(k)
+            self.rebuild()
+            net, w, terminals = ROUTES[k]
+            lines = self._route(net, w, terminals, PREFER_EXTRA)
+            # keep it only if it isn't a detour: at most 10% (or 3 mm) longer than before
+            keep = lines is not None and length(lines) <= max(1.10 * length(old[2]), length(old[2]) + 3)
+            self.groups[k] = (net, w, lines) if keep else old
+            better += keep
+            self.rebuild()
+        return better
+
+    def _route(self, net, w, terminals, extra):
+        block, dist = self.forbidden(net, w, extra=extra)
+        strict, _ = self.forbidden(net, w, extra=extra + 0.15)
+        cost = 1.0 + 1.5 * np.clip((CLEAR + extra + w / 2 + 0.5 - dist) / 0.5, 0, 1)   # keep off other copper
         cost[block] = -1
         rc = lambda k: tuple(int(round(v)) for v in to_px(*pad(k)[:2])[::-1])
         tree = [rc(k) for k in terminals[0]]
@@ -291,14 +350,19 @@ class Router:
                 return None
             end = min(reached, key=lambda e: cum[e])
             path = mcp.traceback(end)
-            pts = simplify(path, block, strict)
-            lines.append(pts)
-            tree += path + ends
-        for pts in lines:
-            m = mask_draw(lambda d: draw_track(d, pts, w))
-            self.owner[m & (self.owner == 0)] = self.id(net)
-            self.tracks.append((net, w, pts))
+            corners = octilinear(path, block, strict)
+            lines.append([tuple(round(v, 3) for v in to_mm(*p)) for p in corners])
+            # later branches may join anywhere on this track's centre line
+            for a, b in zip(corners, corners[1:]):
+                n = int(max(abs(a[0] - b[0]), abs(a[1] - b[1]))) + 1
+                tree += list(zip(np.linspace(a[0], b[0], n).round().astype(int).tolist(),
+                                 np.linspace(a[1], b[1], n).round().astype(int).tolist()))
+            tree += ends
         return lines
+
+
+def length(lines):
+    return sum(math.dist(a, b) for pts in lines for a, b in zip(pts, pts[1:]))
 
 
 def seg_ok(a, b, block):
@@ -308,21 +372,52 @@ def seg_ok(a, b, block):
     return not block[rr, cc].any()
 
 
-def simplify(path, block, strict):
-    """Straighten a grid path into as few segments as stay legal (with a little extra margin if possible)."""
+def doglegs(a, b):
+    """The two ways to join a and b with one 45-degree run and one straight run (grid coordinates)."""
+    dr, dc = b[0] - a[0], b[1] - a[1]
+    d = min(abs(dr), abs(dc))
+    diag = (int(np.sign(dr)) * d, int(np.sign(dc)) * d)
+    return [[a, (a[0] + diag[0], a[1] + diag[1]), b], [a, (b[0] - diag[0], b[1] - diag[1]), b]]
+
+
+def direction(a, b):
+    return (int(np.sign(b[0] - a[0])), int(np.sign(b[1] - a[1])))
+
+
+def octilinear(path, block, strict):
+    """Turn a grid path into straight runs at 0, 45 and 90 degrees only, with as few corners as stay
+    legal (keeping a little extra clearance where it can)."""
+    def ok(pts, grid):
+        return all(seg_ok(p, q, grid) for p, q in zip(pts, pts[1:]) if p != q)
+
     out = [path[0]]
     i = 0
+    prev_dir = None
     while i < len(path) - 1:
-        best = i + 1
+        best, best_pts = i + 1, [path[i], path[i + 1]]
         for j in range(i + 2, len(path)):
-            if seg_ok(path[i], path[j], strict) or (seg_ok(path[i], path[j], block) and
-                                                    strict[path[i]] and strict[path[j]]):
-                best = j
-            elif j - best > 60:
+            options = doglegs(path[i], path[j])
+            # prefer carrying on in the direction we were already going
+            options.sort(key=lambda o: 0 if prev_dir and o[1] != o[0] and direction(o[0], o[1]) == prev_dir else 1)
+            hit = next((o for o in options if ok(o, strict)), None)
+            if hit is None and (strict[path[i]] or strict[path[j]]):
+                hit = next((o for o in options if ok(o, block)), None)
+            if hit is not None:
+                best, best_pts = j, hit
+            elif j - best > 80:
                 break
-        out.append(path[best])
+        for p in best_pts[1:]:
+            if p != out[-1]:
+                out.append(p)
+        prev_dir = direction(out[-2], out[-1]) if len(out) >= 2 else None
         i = best
-    return [tuple(round(v, 3) for v in to_mm(*p)) for p in out]
+    merged = [out[0]]                     # merge runs that carry on in the same direction
+    for p in out[1:]:
+        if len(merged) >= 2 and direction(merged[-2], merged[-1]) == direction(merged[-1], p):
+            merged[-1] = p
+        else:
+            merged.append(p)
+    return merged
 
 
 def autoroute(max_rounds=24):
@@ -332,8 +427,7 @@ def autoroute(max_rounds=24):
         r = Router()
         failed = []
         for k in order:
-            net, w, terms = ROUTES[k]
-            if r.route(net, w, terms) is None:
+            if r.route(k) is None:
                 failed.append(k)
         print(f"  round {rnd + 1}: {len(ROUTES) - len(failed)}/{len(ROUTES)} routed"
               + (f", failed {[ROUTES[k][0] + ' ' + ROUTES[k][2][0][0] for k in failed]}" if failed else ""))
@@ -342,7 +436,10 @@ def autoroute(max_rounds=24):
         if not failed:
             break
         order = failed + [k for k in order if k not in failed]       # hardest first next time
-    return best
+    r, failed = best
+    print(f"  loosening: {r.loosen()}/{len(ROUTES)} connections re-routed with "
+          f"{CLEAR + PREFER_EXTRA:.2f} mm clearance")
+    return r, failed
 
 
 # --- design rule check with exact geometry --------------------------------------------------------------
@@ -669,8 +766,8 @@ def preview(tracks, failed, path):
            fill="white", font=font)
     d.text((2 * M + W * S, M + H * S + 8), "COPPER SIDE, mirrored, as you'll see it on the mill", fill="white",
            font=font)
-    d.text((M, M + H * S + 30), f"{98.71:g} x 67 mm. Traces {SIG_W} mm signal, {PWR_W} mm power, {CLEAR} mm "
-           "clearance. Red 5V, orange battery, blue GND, magenta 3V3, green EN. Yellow = jumper wire.",
+    d.text((M, M + H * S + 30), f"{98.71:g} x 67 mm. Traces {SIG_W} mm signal, {PWR_W} mm power, {CLEAR + PREFER_EXTRA:.2f} mm "
+           "clearance where it fits. Red 5V, orange battery, blue GND, magenta 3V3, green EN. Yellow = jumper wire.",
            fill=(200, 200, 200), font=small)
     img.save(path)
 
