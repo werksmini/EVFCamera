@@ -19,7 +19,7 @@ class Config:
     # Physical buttons: BCM GPIO -> action name (evfcam.actions.A). Each switch closes to ground;
     # the Pi's internal pull-ups are used, so no resistors. MVP milled board: every button is on
     # the header's outer row (even pins), so the single-sided board breaks them all out on one side.
-    # Left to right along the header (pin 1 at the SD-card end).
+    # Left to right along the header (pin 1 at the SD-card end). Matches hardware/pcba-mvp.
     buttons: dict = field(default_factory=lambda: {
         18: "FN",           # pin 12  upper left; does what Setup > Fn button says (default Magnify)
         23: "MENU",         # pin 16
@@ -27,8 +27,8 @@ class Config:
         25: "UP",           # pin 22  D-pad (Adafruit 504)
         8: "LEFT",          # pin 24  (SPI CE0: keep SPI off)
         7: "DOWN",          # pin 26  (SPI CE1)
-        12: "RIGHT",        # pin 32
-        16: "OK",           # pin 36  D-pad press: magnify
+        16: "RIGHT",        # pin 36  (pin 34 next to it is the D-pad's ground)
+        20: "OK",           # pin 38  D-pad press
         21: "SHUTTER_FULL",  # pin 40  right of the D-pad; single-stage for now
     })
 
