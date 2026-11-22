@@ -34,13 +34,17 @@ EDGE = 0.6           # copper to board edge or a drilled hole
 GRID = 0.1           # router grid
 PREFER_EXTRA = 0.25  # second pass: re-route at 0.65 mm clearance wherever that still fits
 
-# --- board outline: notched under the Pi so its HDMI and USB ports stay clear ------------------------
-OUTLINE = [(0, 0), (68.5, 0), (68.5, -5), (98.71, -5), (98.71, 62), (0, 62)]
-# camera ribbon slot (the Pi Zero cable's narrow end passes through), milled in the free top-right corner
-SLOT = ((83.5, 47.0), (97.0, 47.0), 1.6)       # centre line ends and width
+# --- layout (from the "Skeleton" sketch in the Fusion PCBA design) ------------------------------------
+# The skeleton is 105 x 55 with the Pi in the bottom-left corner. Two widenings make it routable:
+LEFT_EXTRA = 3.0     # a lane down the left edge, outside the Pi's screws, carries EN up to the power switch
+RIGHT_SHIFT = 2.5    # slot, charger and gauge move right so six lanes fit between the Pi screw and the slot
+BX0, BX1, BY0, BY1 = -LEFT_EXTRA, 105.0 + RIGHT_SHIFT, 0.0, 55.0
+OUTLINE = [(BX0, BY0), (BX1, BY0), (BX1, BY1), (BX0, BY1)]
+# camera ribbon cut-out, 6 x 20 mm, right beside the Pi's camera connector
+SLOT = [(69.5 + RIGHT_SHIFT, 5.0), (75.5 + RIGHT_SHIFT, 5.0), (75.5 + RIGHT_SHIFT, 25.0), (69.5 + RIGHT_SHIFT, 25.0)]
 
 # --- parts --------------------------------------------------------------------------------------------
-# pad: name -> (x, y, diameter, drill, shape)    shape: round | square | long (EAGLE long pad, R90)
+# pad: name -> (x, y, diameter, drill, shape)  shape: round | square | long (EAGLE long pad, R90) | longh (R0)
 PARTS = {}          # ref -> dict(value, desc, origin, pads, body)
 NETS = {}           # (ref, pad) -> net
 
@@ -80,45 +84,51 @@ def tact3101(ref, value, cx, cy):
          [(cx - 3.5, cy - 3.5, cx + 3.5, cy + 3.5)], origin=(cx, cy))
 
 
-tact3101("SW1", "FN", 19.5, 54.6)
-tact3101("SW2", "MENU", 32.54, 54.6)
-tact3101("SW3", "PLAY", 32.54, 43.6)
-tact3101("SW5", "SHUTTER", 60.0, 46.5)
+tact3101("SW1", "FN", 21.0, 49.0)
+tact3101("SW2", "MENU", 33.0, 49.0)
+tact3101("SW3", "PLAY", 33.0, 37.0)
+tact3101("SW5", "SHUTTER", 61.0, 49.0)
 
 # D-pad: Adafruit 504 (Alps SKQU-style 5-way). Pins 1 up, 2 left, 3 down on the left; 6 press, 5 right,
 # 4 common on the right. The middle pins are drilled oversize: check their offset with calipers.
-DX, DY = 46.2, 46.5
+DX, DY = 47.0, 43.0
 part("SW4", "D-PAD", "5-way navigation switch, Adafruit 504",
      {"1": (DX - 5.15, DY + 3.25, 2.2, 1.2, "round"), "2": (DX - 5.15, DY, 2.4, 1.4, "round"),
       "3": (DX - 5.15, DY - 3.25, 2.2, 1.2, "round"), "6": (DX + 5.15, DY + 3.25, 2.2, 1.2, "round"),
       "5": (DX + 5.15, DY, 2.4, 1.4, "round"), "4": (DX + 5.15, DY - 3.25, 2.2, 1.2, "round")},
      [(DX - 5, DY - 5, DX + 5, DY + 5)], origin=(DX, DY))
 
-# Power switch: C&K OS102011MA1QN1 right-angle slide, actuator over the top edge.
-SX, SY = 76.0, 59.8
-part("SW6", "POWER", "C&K OS102011MA1QN1 right-angle slide switch. Pin 1 side = OFF",
-     {"1": (SX, SY, 1.4, 0.9, "long"), "2": (SX + 2, SY, 1.4, 0.9, "long"), "3": (SX + 4, SY, 1.4, 0.9, "long"),
-      "T1": (SX - 2.1, SY, 2.6, 1.5, "round"), "T2": (SX + 6.1, SY, 2.6, 1.5, "round")},
-     [(SX - 2.3, SY - 2.2, SX + 6.3, SY + 2.2)], origin=(SX + 2, SY))
+# Power switch: C&K OS102011MA1QN1 right-angle slide on the left edge, actuator out to the left.
+# Pins run up the edge; pin 1 (to GND, the OFF side) is the top one, so sliding UP turns the camera off.
+SX, SY = BX0 + 2.2, 46.7                  # pin 2 (common)
+part("SW6", "POWER", "C&K OS102011MA1QN1 right-angle slide switch. Pin 1 side (up) = OFF",
+     {"1": (SX, SY + 2, 1.4, 0.9, "longh"), "2": (SX, SY, 1.4, 0.9, "longh"), "3": (SX, SY - 2, 1.4, 0.9, "longh"),
+      "T1": (SX, SY + 4.1, 2.6, 1.5, "round"), "T2": (SX, SY - 4.1, 2.6, 1.5, "round")},
+     [(BX0, SY - 4.3, BX0 + 4.4, SY + 4.3)], origin=(SX, SY))
 
 # Charger: Adafruit 6106 (BQ25185 + 5 V boost), turned so USB-C faces right over the board edge.
 # Its 8 header pins go through this board. Remove its screw terminal block first.
 CHG_PINS = ["EN", "5V", "VBAT", "GND", "D+", "D-", "VBUS", "VIN"]
-CHG_X = [75.215, 77.755, 80.295, 82.835, 85.375, 87.915, 90.455, 92.995]
+CL = 75.79 + RIGHT_SHIFT                  # charger's left edge; it sits in the bottom-right corner
+CHG_Y = 19.05 - 2.54                      # header row, along the charger's top edge
+CHG_X = [CL + 5.715 + 2.54 * i for i in range(8)]
 part("U1", "ADAFRUIT 6106", "BQ25185 charger + 5 V boost breakout, pins through the board",
-     {nm: (x, 11.51, 1.8, 1.0, "square" if nm == "VIN" else "round") for nm, x in zip(CHG_PINS, CHG_X)},
-     [(69.5, -5, 98.71, 14.05)])
-CHG_HOLES = [(72.04, -2.46), (96.17, -2.46), (72.04, 11.51), (96.17, 11.51)]
+     {nm: (x, CHG_Y, 1.8, 1.0, "square" if nm == "VIN" else "round") for nm, x in zip(CHG_PINS, CHG_X)},
+     [(CL, 0, CL + 29.21, 19.05)])
+CHG_HOLES = [(CL + 2.54, 2.54), (CL + 26.67, 2.54), (CL + 2.54, CHG_Y), (CL + 26.67, CHG_Y)]
 
 # Fuel gauge: Adafruit 5580 (MAX17048), header column on the left, battery pins (JP2) through the board.
-MAX_PINS = [("VCC", 35.05), ("GND", 32.51), ("SCL", 29.97), ("SDA", 27.43), ("INT", 24.89), ("QSTART", 22.35)]
-max_pads = {nm: (72.54, y, 1.8, 1.0, "square" if nm == "VCC" else "round") for nm, y in MAX_PINS}
-max_pads["BAT"] = (81.43, 29.97, 1.8, 1.0, "round")
-max_pads["BGND"] = (81.43, 27.43, 1.8, 1.0, "round")
+# Only 4 of its 6 header pins are fitted (INT and QSTART aren't used), which frees room for the lanes.
+GL, GB = 80.235 + RIGHT_SHIFT, 21.5        # gauge's left and bottom edges (20.32 wide x 25.4 tall)
+MAX_PINS = [("VCC", 19.05), ("GND", 16.51), ("SCL", 13.97), ("SDA", 11.43)]
+max_pads = {nm: (GL + 2.54, GB + y, 1.8, 1.0, "square" if nm == "VCC" else "round") for nm, y in MAX_PINS}
+max_pads["BAT"] = (GL + 11.43, GB + 13.97, 1.8, 1.0, "round")
+max_pads["BGND"] = (GL + 11.43, GB + 11.43, 1.8, 1.0, "round")
 part("U2", "ADAFRUIT 5580", "MAX17048 fuel gauge breakout; VIN = 3.3 V (its I2C pull-ups go to VIN)",
-     max_pads, [(70, 16, 90.32, 41.4)])
+     max_pads, [(GL, GB, GL + 20.32, GB + 25.4)])
+GAUGE_HOLES = [(GL + 2.54, GB + 2.54), (GL + 2.54, GB + 22.86), (GL + 17.78, GB + 2.54), (GL + 17.78, GB + 22.86)]
 
-HOLES = [(x, y, 2.75) for x, y in PI_HOLES + CHG_HOLES]      # all for M2.5 nylon screws
+HOLES = [(x, y, 2.75) for x, y in PI_HOLES + CHG_HOLES + GAUGE_HOLES]      # all for M2.5 nylon screws
 
 # Pads that are the same pin inside the part (EAGLE route="any"): any one of them may carry the trace.
 TIED = {
@@ -155,15 +165,48 @@ NETS.update({("U2", "VCC"): "+3V3", ("U2", "GND"): "GND", ("U2", "SCL"): "SCL", 
 
 # What the router has to join with copper: (net, width, terminals). Each terminal is a list of pads that
 # are already joined inside a part; reaching any one of them is enough. Terminals are joined in order.
+# Gauge header lead-ins (see STUBS) end here; each is (x, y) of the stub's far end.
+STUB_LEN = {"VCC": 6.6, "GND": 5.0, "SCL": 3.4, "SDA": 2.0}
+
+
+def stub_end(pin):
+    x, y = max_pads[pin][:2]
+    return f"XY:{x - STUB_LEN[pin]:.3f},{y:.3f}"
+
+
+def xy(x, y):
+    return [f"XY:{x:.3f},{y:.3f}"]
+
+
+# The bus from under the Pi to the gauge and charger is laid out by hand as nested lanes (waypoints);
+# the router only joins the dots. Heading right under the Pi, up between the Pi's screw and the ribbon
+# cut-out, then right over the cut-out. Lane spacing is the minimum width + 0.4 mm clearance.
+R = RIGHT_SHIFT
+LANES = {          # net: (lane y under the Pi, riser x, lane y over the cut-out); 0.2 mm spare per gap
+    "+3V3": (22.0, 64.4, 32.5), "GND": (20.4, 66.0, 30.9), "SCL": (18.8, 67.6, 29.3),
+    "SDA": (17.4, 69.0, 27.9), "+5V": (15.8, 70.6, 26.3)}
+
+
+def lane(net, start, stub_pin):
+    ly, rx, oy = LANES[net]
+    sx, sy = map(float, stub_end(stub_pin)[3:].split(","))
+    return [start, xy(rx, ly), xy(rx, oy), xy(sx, oy), [stub_end(stub_pin)]]
+
+
 ROUTES = [
-    # the bundle under the Pi, innermost lane first, so each one nests outside the last
-    ("+3V3", SIG_W, [["J1.17"], ["XY:65.9,35.05"]]),
-    ("GND", PWR_W, [["J1.9"], ["XY:67.5,32.51"]]),
-    ("SCL", SIG_W, [["J1.5"], ["XY:69.1,29.97"]]),
-    ("SDA", SIG_W, [["J1.3"], ["XY:70.5,27.43"]]),
+    # innermost lane first, so each one nests outside the last
+    ("+3V3", SIG_W, lane("+3V3", ["J1.17"], "VCC")),
+    ("GND", PWR_W, lane("GND", ["J1.9"], "GND")),
+    ("SCL", SIG_W, lane("SCL", ["J1.5"], "SCL")),
+    ("SDA", SIG_W, lane("SDA", ["J1.3"], "SDA")),
+    # 5 V: round the Pi screw end of the header, under the bus, over the cut-out, then down to the charger
+    ("+5V", PWR_W, [["J1.2", "J1.4"], xy(6.3, 25.2), xy(6.3, 15.8), xy(70.6, 15.8), xy(70.6, 26.3),
+                    xy(80.5, 26.3), xy(80.5, 19.7), xy(CHG_X[1], 19.7), ["U1.5V"]]),
+    # EN: under the cut-out, under the whole bus, up the left edge outside the Pi's screws to the switch
+    ("EN", SIG_W, [["U1.EN"], xy(CHG_X[0], 7.0), xy(SLOT[1][0] + 1.2, 5.7), xy(SLOT[1][0] - 3.0, 2.5),
+                   xy(66.0, 2.5 + 4.5), xy(66.0, 12.0), xy(0.0, 12.0), xy(0.0, 38.0), xy(1.6, 39.6),
+                   ["SW6.2"]]),
     ("GND", PWR_W, [["U2.BGND"], ["U1.GND"]]),
-    ("EN", SIG_W, [["U1.EN"], ["SW6.2"]]),   # before 5V, which must then come in under it
-    ("+5V", PWR_W, [["J1.2", "J1.4"], ["U1.5V"]]),
     ("VBAT", PWR_W, [["U1.VBAT"], ["U2.BAT"]]),
     ("FN", SIG_W, [["SW1.2", "SW1.1"], ["J1.12"]]),
     ("GND", SIG_W, [["SW1.4", "SW1.3"], ["J1.14"]]),
@@ -179,7 +222,7 @@ ROUTES = [
     ("OK", SIG_W, [["SW4.6"], ["J1.38"]]),
     ("SHUTTER", SIG_W, [["SW5.2", "SW5.1"], ["J1.40"]]),
     ("GND", SIG_W, [["SW5.4", "SW5.3"], ["J1.39"]]),
-    ("GND", SIG_W, [["SW5.3", "SW5.4"], ["SW6.1"]]),
+    ("GND", SIG_W, [["SW6.1"], ["J1.6"]]),
     ("GND", SIG_W, [["SW6.1"], ["SW6.T1"]]),
     ("SW6_TAB", SIG_W, [["SW6.3"], ["SW6.T2"]]),
 ]
@@ -188,8 +231,10 @@ ROUTES = [
 # Fixed lead-ins into the gauge's header column. The four lanes from under the Pi arrive side by side,
 # so each pad gets a straight stub to the left, staggered (top pad's stub longest). The router only has
 # to reach the stub ends, and the lanes nest instead of cutting across each other's pads.
-STUBS = [("+3V3", SIG_W, "U2.VCC", 65.9), ("GND", PWR_W, "U2.GND", 67.5),
-         ("SCL", SIG_W, "U2.SCL", 69.1), ("SDA", SIG_W, "U2.SDA", 70.5)]
+STUBS = [("+3V3", SIG_W, "U2.VCC", float(stub_end("VCC")[3:].split(",")[0])),
+         ("GND", PWR_W, "U2.GND", float(stub_end("GND")[3:].split(",")[0])),
+         ("SCL", SIG_W, "U2.SCL", float(stub_end("SCL")[3:].split(",")[0])),
+         ("SDA", SIG_W, "U2.SDA", float(stub_end("SDA")[3:].split(",")[0]))]
 
 
 def pad(key):
@@ -206,8 +251,8 @@ def net_of(ref, p):
 
 
 # --- geometry -------------------------------------------------------------------------------------------
-X0, Y0 = -1.0, -6.0
-X1, Y1 = 99.71 + 0.3, 63.0
+X0, Y0 = BX0 - 1.0, BY0 - 1.0
+X1, Y1 = BX1 + 1.0, BY1 + 1.0
 GW, GH = int(round((X1 - X0) / GRID)) + 1, int(round((Y1 - Y0) / GRID)) + 1
 
 
@@ -236,6 +281,11 @@ def draw_pad(d, p, grow=0.0):
         d.ellipse([cx - r, cy - h - r, cx + r, cy - h + r], fill=1)
         d.ellipse([cx - r, cy + h - r, cx + r, cy + h + r], fill=1)
         d.rectangle([cx - r, cy - h, cx + r, cy + h], fill=1)
+    elif shape == "longh":                    # EAGLE long pad, not turned: 2 x dia wide, dia tall
+        h = dia / 2 / GRID
+        d.ellipse([cx - h - r, cy - r, cx - h + r, cy + r], fill=1)
+        d.ellipse([cx + h - r, cy - r, cx + h + r, cy + r], fill=1)
+        d.rectangle([cx - h, cy - r, cx + h, cy + r], fill=1)
     else:
         d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=1)
 
@@ -250,8 +300,7 @@ def draw_track(d, pts, w):
 
 def board_mask():
     m = mask_draw(lambda d: d.polygon([to_px(*p) for p in OUTLINE], fill=1))
-    (ax, ay), (bx, by), w = SLOT
-    m &= ~mask_draw(lambda d: draw_track(d, [(ax, ay), (bx, by)], w))
+    m &= ~mask_draw(lambda d: d.polygon([to_px(*p) for p in SLOT], fill=1))
     return m
 
 
@@ -335,6 +384,8 @@ class Router:
         block, dist = self.forbidden(net, w, extra=extra)
         strict, _ = self.forbidden(net, w, extra=extra + 0.15)
         cost = 1.0 + 1.5 * np.clip((CLEAR + extra + w / 2 + 0.5 - dist) / 0.5, 0, 1)   # keep off other copper
+        if any(t[0].startswith("XY:") for t in terminals):
+            cost = np.ones_like(cost)            # hand-laid lanes: just join the dots straight
         cost[block] = -1
         rc = lambda k: tuple(int(round(v)) for v in to_px(*pad(k)[:2])[::-1])
         tree = [rc(k) for k in terminals[0]]
@@ -453,6 +504,8 @@ def drc(tracks):
                 g = box(x - dia / 2, y - dia / 2, x + dia / 2, y + dia / 2)
             elif shape == "long":
                 g = LineString([(x, y - dia / 2), (x, y + dia / 2)]).buffer(dia / 2)
+            elif shape == "longh":
+                g = LineString([(x - dia / 2, y), (x + dia / 2, y)]).buffer(dia / 2)
             else:
                 g = Point(x, y).buffer(dia / 2)
             shapes.append((net_of(ref, p), g, f"{ref}.{p}"))
@@ -469,8 +522,7 @@ def drc(tracks):
             if dd < worst[0]:
                 worst = (dd, shapes[i][2], shapes[j][2])
     edge = Polygon(OUTLINE).exterior
-    (ax, ay), (bx, by), sw = SLOT
-    cut = unary_union([edge, LineString([(ax, ay), (bx, by)]).buffer(sw / 2).exterior] +
+    cut = unary_union([edge, Polygon(SLOT).exterior] +
                       [Point(x, y).buffer(r / 2).exterior for x, y, r in HOLES])
     e = min(((s[1].distance(cut), s[2]) for s in shapes), key=lambda t: t[0])
     return worst, e
@@ -486,7 +538,7 @@ def package_xml(ref):
     ox, oy = pt["origin"]
     out = [f'<package name="{ref}_PKG"><description>{escape(pt["desc"])}</description>']
     for p, (x, y, dia, drill, shape) in pt["pads"].items():
-        extra = ' shape="long" rot="R90"' if shape == "long" else f' shape="{shape}"'
+        extra = {"long": ' shape="long" rot="R90"', "longh": ' shape="long"'}.get(shape, f' shape="{shape}"')
         out.append(f'<pad name="{p}" x="{f(x - ox)}" y="{f(y - oy)}" drill="{f(drill)}" '
                    f'diameter="{f(dia)}"{extra}/>')
     for x0, y0, x1, y1 in pt["body"]:
@@ -620,15 +672,11 @@ def board(tracks):
                             f'width="{f(w)}" layer="16"/>')
     plain = "".join(f'<wire x1="{f(a[0])}" y1="{f(a[1])}" x2="{f(b[0])}" y2="{f(b[1])}" width="0" layer="20"/>'
                     for a, b in zip(OUTLINE, OUTLINE[1:] + OUTLINE[:1]))
-    (ax, ay), (bx, by), sw = SLOT
-    r = sw / 2
-    plain += (f'<wire x1="{f(ax)}" y1="{f(ay + r)}" x2="{f(bx)}" y2="{f(by + r)}" width="0" layer="20"/>'
-              f'<wire x1="{f(bx)}" y1="{f(by + r)}" x2="{f(bx)}" y2="{f(by - r)}" width="0" layer="20" curve="-180"/>'
-              f'<wire x1="{f(bx)}" y1="{f(by - r)}" x2="{f(ax)}" y2="{f(ay - r)}" width="0" layer="20"/>'
-              f'<wire x1="{f(ax)}" y1="{f(ay - r)}" x2="{f(ax)}" y2="{f(ay + r)}" width="0" layer="20" curve="-180"/>')
+    plain += "".join(f'<wire x1="{f(a[0])}" y1="{f(a[1])}" x2="{f(b[0])}" y2="{f(b[1])}" width="0" layer="20"/>'
+                     for a, b in zip(SLOT, SLOT[1:] + SLOT[:1]))
     plain += "".join(f'<hole x="{f(x)}" y="{f(y)}" drill="{f(d)}"/>' for x, y, d in HOLES)
-    plain += ('<text x="2" y="59.5" size="1.5" layer="21">EVFCAM MVP v0.1</text>'
-              '<text x="84" y="49.2" size="1" layer="21">CAMERA RIBBON</text>')
+    plain += (f'<text x="{f(BX0 + 7)}" y="{f(BY1 - 2.5)}" size="1.5" layer="21">EVFCAM MVP v0.2</text>'
+              f'<text x="{f(SLOT[0][0])}" y="{f(SLOT[0][1] - 2)}" size="1" layer="21">CAMERA RIBBON</text>')
     classes = {n: 1 if n in POWER_NETS else 0 for n in sig}
     sig_xml = "".join(f'<signal name="{n}" class="{classes[n]}">{"".join(c)}</signal>' for n, c in sorted(sig.items()))
     rules = ('<designrules name="evfcam_mill"><param name="layerSetup" value="(1*16)"/>'
@@ -660,6 +708,8 @@ def gerbers(tracks, outdir):
                 a = aperture(f"R,{dia:.3f}X{dia:.3f}")
             elif shape == "long":
                 a = aperture(f"O,{dia:.3f}X{2 * dia:.3f}")
+            elif shape == "longh":
+                a = aperture(f"O,{2 * dia:.3f}X{dia:.3f}")
             else:
                 a = aperture(f"C,{dia:.3f}")
             body.append(f"D{a}*\nX{g6(x)}Y{g6(y)}D03*")
@@ -674,13 +724,10 @@ def gerbers(tracks, outdir):
         fh.write(hdr + aps + "G01*\n" + "\n".join(body) + "\nM02*\n")
 
     # outline: board edge and ribbon slot as zero-width-ish lines
-    (ax, ay), (bx, by), sw = SLOT
-    rr = sw / 2
-    lines = [f"X{g6(OUTLINE[0][0])}Y{g6(OUTLINE[0][1])}D02*"]
-    lines += [f"X{g6(x)}Y{g6(y)}D01*" for x, y in OUTLINE[1:] + OUTLINE[:1]]
-    lines += [f"X{g6(ax)}Y{g6(ay + rr)}D02*", f"X{g6(bx)}Y{g6(by + rr)}D01*",
-              "G75*", "G02*", f"X{g6(bx)}Y{g6(by - rr)}I0J{g6(-rr)}D01*", "G01*",
-              f"X{g6(ax)}Y{g6(ay - rr)}D01*", "G02*", f"X{g6(ax)}Y{g6(ay + rr)}I0J{g6(rr)}D01*", "G01*"]
+    lines = []
+    for poly in (OUTLINE, SLOT):
+        lines.append(f"X{g6(poly[0][0])}Y{g6(poly[0][1])}D02*")
+        lines += [f"X{g6(x)}Y{g6(y)}D01*" for x, y in poly[1:] + poly[:1]]
     with open(os.path.join(outdir, f"{NAME}-Edge_Cuts.gbr"), "w") as fh:
         fh.write("%TF.FileFunction,Profile,NP*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\n%ADD10C,0.100*%\nD10*\nG01*\n"
                  + "\n".join(lines) + "\nM02*\n")
@@ -704,8 +751,8 @@ def gerbers(tracks, outdir):
 # --- picture --------------------------------------------------------------------------------------------
 def preview(tracks, failed, path):
     S, M = 9, 26
-    W = 98.71 + 2
-    H = 67 + 2
+    W = BX1 - BX0 + 2
+    H = BY1 - BY0 + 2
     img = Image.new("RGB", (int(2 * W * S) + 3 * M, int(H * S) + 2 * M + 70), (28, 30, 34))
     d = ImageDraw.Draw(img)
     font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13)
@@ -715,14 +762,10 @@ def preview(tracks, failed, path):
 
     def view(ox, mirror):
         def P(x, y):
-            xx = (98.71 - x) if mirror else x
-            return ox + (xx + 1) * S, M + (63 - y) * S
+            xx = (BX1 - x) if mirror else (x - BX0)
+            return ox + (xx + 1) * S, M + (BY1 + 1 - y) * S
         d.polygon([P(*p) for p in OUTLINE], fill=(196, 160, 92) if mirror else (40, 92, 60), outline="black")
-        (ax, ay), (bx, by), sw = SLOT
-        d.line([P(ax, ay), P(bx, by)], fill=(28, 30, 34), width=int(sw * S))
-        for (ax_, ay_) in ((ax, ay), (bx, by)):
-            cx, cy = P(ax_, ay_)
-            d.ellipse([cx - sw / 2 * S, cy - sw / 2 * S, cx + sw / 2 * S, cy + sw / 2 * S], fill=(28, 30, 34))
+        d.polygon([P(*p) for p in SLOT], fill=(28, 30, 34))
         if not mirror:
             for r, pt in PARTS.items():
                 for x0, y0, x1, y1 in pt["body"]:
@@ -747,6 +790,8 @@ def preview(tracks, failed, path):
                     d.rectangle([cx - rr, cy - rr, cx + rr, cy + rr], fill=col)
                 elif shape == "long":
                     d.rounded_rectangle([cx - rr, cy - 2 * rr, cx + rr, cy + 2 * rr], radius=rr, fill=col)
+                elif shape == "longh":
+                    d.rounded_rectangle([cx - 2 * rr, cy - rr, cx + 2 * rr, cy + rr], radius=rr, fill=col)
                 else:
                     d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=col)
                 rd = drill / 2 * S
@@ -766,7 +811,7 @@ def preview(tracks, failed, path):
            fill="white", font=font)
     d.text((2 * M + W * S, M + H * S + 8), "COPPER SIDE, mirrored, as you'll see it on the mill", fill="white",
            font=font)
-    d.text((M, M + H * S + 30), f"{98.71:g} x 67 mm. Traces {SIG_W} mm signal, {PWR_W} mm power, {CLEAR + PREFER_EXTRA:.2f} mm "
+    d.text((M, M + H * S + 30), f"{BX1 - BX0:g} x {BY1 - BY0:g} mm. Traces {SIG_W} mm signal, {PWR_W} mm power, {CLEAR + PREFER_EXTRA:.2f} mm "
            "clearance where it fits. Red 5V, orange battery, blue GND, magenta 3V3, green EN. Yellow = jumper wire.",
            fill=(200, 200, 200), font=small)
     img.save(path)

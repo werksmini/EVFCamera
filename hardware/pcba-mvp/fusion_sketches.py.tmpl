@@ -1,0 +1,66 @@
+"""Fusion script: draws the MVP board layout as sketches in the open "PCBA" design (XZ plane, the
+same convention as the "Pi" and "Skeleton" sketches: sketch x = board X, sketch y = -board Y, mm).
+Replaces the sketches it drew before (matched by name); leaves every other sketch alone. Does not save.
+Data comes from layout.json, written by make_pcba.py; regenerate this file with make_fusion_script.py."""
+import adsk.core, adsk.fusion, json
+L = json.loads(__DATA__)
+NAMES = {"SW1": "Button Fn", "SW2": "Button Menu", "SW3": "Button Play", "SW4": "D-pad 504",
+         "SW5": "Button Shutter", "SW6": "Power switch", "U1": "Charger 6106", "U2": "Fuel gauge 5580"}
+OLD = list(NAMES.values()) + ["Mounting holes (corrected)", "Mounting holes", "Board outline + ribbon slot",
+                              "Board outline + ribbon cut-out"]
+
+
+def P(x, y):
+    return adsk.core.Point3D.create(x / 10.0, -y / 10.0, 0)
+
+
+def run(_context: str):
+    app = adsk.core.Application.get()
+    doc = [d for d in app.documents if d.name == "PCBA"][0]
+    doc.activate()
+    root = adsk.fusion.Design.cast(app.activeProduct).rootComponent
+    for name in OLD:
+        s = root.sketches.itemByName(name)
+        if s:
+            s.deleteMe()
+
+    def sk(name):
+        s = root.sketches.add(root.xZConstructionPlane)
+        s.name = name
+        s.isComputeDeferred = True
+        return s
+
+    def rect(s, x0, y0, x1, y1):
+        s.sketchCurves.sketchLines.addTwoPointRectangle(P(x0, y0), P(x1, y1))
+
+    def poly(s, pts):
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            s.sketchCurves.sketchLines.addByTwoPoints(P(*a), P(*b))
+
+    for ref, pt in L["parts"].items():
+        if ref not in NAMES:
+            continue
+        s = sk(NAMES[ref])
+        for name, (x, y, dia, drill, shape) in pt["pads"].items():
+            c = s.sketchCurves.sketchCircles
+            c.addByCenterRadius(P(x, y), drill / 20.0)
+            if shape == "square":
+                rect(s, x - dia / 2, y - dia / 2, x + dia / 2, y + dia / 2)
+            elif shape == "long":
+                rect(s, x - dia / 2, y - dia, x + dia / 2, y + dia)
+            elif shape == "longh":
+                rect(s, x - dia, y - dia / 2, x + dia, y + dia / 2)
+            else:
+                c.addByCenterRadius(P(x, y), dia / 20.0)
+        for x0, y0, x1, y1 in pt["body"]:
+            rect(s, x0, y0, x1, y1)
+        s.isComputeDeferred = False
+    s = sk("Mounting holes")
+    for x, y, dd in L["holes"]:
+        s.sketchCurves.sketchCircles.addByCenterRadius(P(x, y), dd / 20.0)
+    s.isComputeDeferred = False
+    s = sk("Board outline + ribbon cut-out")
+    poly(s, [tuple(p) for p in L["outline"]])
+    poly(s, [tuple(p) for p in L["slot"]])
+    s.isComputeDeferred = False
+    print("sketches:", [x.name for x in root.sketches])
