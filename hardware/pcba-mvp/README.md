@@ -9,6 +9,7 @@
 | `gerber/evfcam_mvp-Edge_Cuts.gbr` | Board outline and camera ribbon slot |
 | `gerber/evfcam_mvp-PTH.drl`, `-NPTH.drl` | Pin holes (0.9 / 1.0 / 1.2 / 1.4 / 1.5 mm) and M2.5 screw holes (2.75 mm) |
 | `preview.png` | Component side and the mirrored copper side |
+| `fusion_dummy_board.py` | "Dummy board (print)" sketch: outline, cut-out and every hole, sizes as Fusion parameters |
 | `fusion_sketches.py`, `layout.json` | Draws the layout into the Fusion "PCBA" design (`make_fusion_script.py` rebuilds it) |
 
 Needs `numpy scipy scikit-image pillow shapely`.
